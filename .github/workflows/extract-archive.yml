@@ -1,0 +1,67 @@
+name: Extract uploaded archive
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/extract-archive.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install extract tools
+        run: |
+          sudo apt-get update -y || true
+          sudo apt-get install -y unrar p7zip-full p7zip-rar libarchive-tools rsync || \
+          sudo apt-get install -y p7zip-full libarchive-tools rsync || true
+
+      - name: Extract archives into repository root
+        shell: bash
+        run: |
+          set -uo pipefail
+          shopt -s nullglob dotglob
+          archives=( *.rar *.zip *.7z )
+          if [ ${#archives[@]} -eq 0 ]; then
+            echo "No archive found"; exit 0
+          fi
+          for arc in "${archives[@]}"; do
+            echo "=== Extracting $arc ==="
+            out="$RUNNER_TEMP/extract"
+            rm -rf "$out"; mkdir -p "$out"
+            ok=0
+            if command -v unrar >/dev/null 2>&1 && unrar x -o+ -y "$arc" "$out/"; then ok=1; fi
+            if [ $ok -eq 0 ] && command -v 7z >/dev/null 2>&1 && 7z x -y "-o$out" "$arc"; then ok=1; fi
+            if [ $ok -eq 0 ] && command -v bsdtar >/dev/null 2>&1 && bsdtar -xf "$arc" -C "$out"; then ok=1; fi
+            if [ $ok -eq 0 ]; then echo "ERROR: could not extract $arc"; exit 1; fi
+            src="$out"
+            entries=( "$out"/* )
+            if [ ${#entries[@]} -eq 1 ] && [ -d "${entries[0]}" ]; then src="${entries[0]}"; fi
+            echo "Source root: $src"
+            find "$src" -maxdepth 3 | head -300
+            if [ -d "$src/.github/workflows" ]; then
+              mkdir -p .archive-workflows
+              cp -a "$src/.github/workflows/." .archive-workflows/
+            fi
+            rsync -a --exclude='.git/' --exclude='.github/workflows/' "$src/" ./
+            git rm -q "$arc"
+          done
+
+      - name: Commit and push
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A -f
+          git reset -q -- .github/workflows || true
+          if git diff --cached --quiet; then echo "Nothing to commit"; exit 0; fi
+          git commit -m "Extract piyazche-scanner-master.rar into repository (archive removed)"
+          git pull --rebase origin main || true
+          git push origin HEAD:main
