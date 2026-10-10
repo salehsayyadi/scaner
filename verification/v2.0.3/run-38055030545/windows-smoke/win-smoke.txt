@@ -1,0 +1,16 @@
+standalone running: pid=3052 title='Scaner 2.0.3'
+sent Ctrl+S
+standalone closed normally, exit=0
+APPDATA files after Ctrl+S and close:
+
+FullName                                                 Length
+--------                                                 ------
+C:\Users\runneradmin\AppData\Roaming\Scaner\piyazche.log    107
+C:\Users\runneradmin\AppData\Roaming\Scaner\session.json   2249
+
+
+standalone-relaunch running: pid=6240 title='Scaner 2.0.3'
+installed files: Scaner.exe, unins000.dat, unins000.exe
+start menu shortcut: True; desktop shortcut: True
+installed running: pid=2284 title='Scaner 2.0.3'
+uninstall exit=0; exe still present: False; start shortcut present: False; user data kept: True
