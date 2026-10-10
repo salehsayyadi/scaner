@@ -34,8 +34,9 @@ Path("cmd/scaner/AndroidManifest.xml").write_text(f'''<manifest xmlns:android="h
 </manifest>''')
 PY
 trap 'rm -f cmd/scaner/AndroidManifest.xml' EXIT
+# fyne resolves a relative --icon against --src, so pass an absolute path.
 fyne package --os android/arm64,android/arm --src cmd/scaner \
-  --appID com.piyazche.scaner --name Scaner --icon build/icon.png \
+  --appID com.piyazche.scaner --name Scaner --icon "$PWD/build/icon.png" \
   --appVersion "$VERSION" --appBuild "$VERSION_CODE"
 APK="$(find . -name 'Scaner.apk' -o -name 'scaner.apk' | head -1)"
 test -n "$APK"

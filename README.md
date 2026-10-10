@@ -34,10 +34,26 @@ Binaries are not Authenticode-signed, so Windows may display an unknown-publishe
 warning. Verify the repository and `SHA256SUMS.txt`; do not disable security
 software to install the program.
 
+### Windows quick reference (English)
+
+| File in the release | What it is |
+|---|---|
+| `Scaner-Setup-2.0.3.exe` | **Installer.** Per-user install, no administrator rights needed. Installs to `%LOCALAPPDATA%\Programs\Scaner`, adds a Start menu entry (`Scaner`) and, if selected, a desktop shortcut. |
+| `Scaner-2.0.3-windows-amd64.exe` | **Standalone GUI.** The same program as the installed `Scaner.exe` (identical file). Download and double-click; nothing else is needed beside it. |
+| `Scaner-cli-2.0.3-windows-amd64.exe` | Original command-line/TUI program. Run it from `cmd` or PowerShell. |
+| `Scaner-2.0.3-source.zip`, `SHA256SUMS.txt` | Source of this release and checksums of every file. |
+
+- **Launch:** Start menu → *Scaner* (installed), or double-click the standalone EXE.
+- **Update:** run the newer `Scaner-Setup-<version>.exe`; it replaces the installed copy in place and keeps your data. For the standalone EXE, replace the file.
+- **Uninstall:** Settings → Apps → Installed apps → *Scaner* → Uninstall. Your settings in `%APPDATA%\Scaner` are kept; delete that folder to remove them.
+- **Data:** `%APPDATA%\Scaner` (`session.json`, results, `piyazche.log`) for both the installed and standalone copies.
+- **Architecture:** Windows 10/11 **x64** only. No native ARM64 or 32-bit build. Needs a graphics driver with OpenGL 2.1 or newer; very old or GPU-less virtual machines may not be able to open the window.
+- **Signing:** the files are **not code-signed**. SmartScreen may show "Windows protected your PC" or "Unknown publisher". First check the file with `Get-FileHash .\Scaner-Setup-2.0.3.exe -Algorithm SHA256` against `SHA256SUMS.txt`; only if it matches, choose *More info → Run anyway*. Do not disable SmartScreen or antivirus.
+
 ### Android — بدون روت
 
-- پس از موفقیت build اندروید، **`Scaner-2.0.3-android.apk`** در Release
-  قرار می‌گیرد. APK شامل خود برنامه و هسته است؛ Termux، Go یا روت لازم نیست.
+- فایل **`Scaner-2.0.3-android.apk`** در Release قرار می‌گیرد (یک APK برای ARM64 و ARMv7؛
+  گوشی‌های x86 پشتیبانی نمی‌شوند). APK شامل خود برنامه و هسته است؛ Termux، Go یا روت لازم نیست.
 - APK برای **ARM64 و ARMv7** ساخته و امضا و معماری‌های آن در Actions بررسی
   می‌شود. حداقل نسخه Android در خروجی بررسی APK ثبت می‌شود.
 - فایل را از همین مخزن دانلود کن و اجازه نصب را فقط برای برنامه‌ای بده که
