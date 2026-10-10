@@ -3,6 +3,7 @@ package scanner
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -136,6 +137,34 @@ func (w *Worker) processIP(ip string) {
 		maxRetries = 1
 	}
 
+	result := Result{IP: ip}
+	probed := false
+	if usePrecheck(w.cfg) {
+		probed = true
+		tries := 1
+		if maxRetries > 1 {
+			tries = 2
+		}
+		var err error
+		for i := 0; i < tries && w.ctx.Err() == nil; i++ {
+			var lat time.Duration
+			if lat, err = utils.TCPConnect(ip, w.cfg.Proxy.Port, precheckTimeout(w.cfg)); err == nil {
+				result.TCPOK, result.TCPMs = true, lat.Milliseconds()
+				break
+			}
+		}
+		if w.ctx.Err() != nil {
+			return
+		}
+		if !result.TCPOK {
+			// Unreachable: Xray would only wait for its timeout on every retry.
+			result.Error = fmt.Sprintf("TCP %d unreachable: %v", w.cfg.Proxy.Port, err)
+			w.results.Add(result)
+			applog.Logf("ip=%-15s ok=false tcp pre-check failed err=%q", ip, result.Error)
+			return
+		}
+	}
+
 	var m *xray.MeasureResult
 	for attempt := 0; attempt < maxRetries; attempt++ {
 		select {
@@ -159,8 +188,7 @@ func (w *Worker) processIP(ip string) {
 		}
 	}
 
-	result := Result{IP: ip}
-	if w.ctx.Err() == nil {
+	if !probed && w.ctx.Err() == nil {
 		if lat, err := utils.TCPConnect(ip, w.cfg.Proxy.Port, tcpProbeTimeout(w.cfg)); err == nil {
 			result.TCPOK = true
 			result.TCPMs = lat.Milliseconds()
@@ -317,6 +345,44 @@ func (w *Worker) measureIP(ip string) *xray.MeasureResult {
 		m.StatusCode, errStr)
 
 	return m
+}
+
+// usePrecheck reports whether a plain TCP connect predicts reachability. QUIC
+// (h3 ALPN / quic or kcp transports) runs over UDP, so it is not pre-checked.
+func usePrecheck(cfg *config.Config) bool {
+	if !cfg.Scan.TCPPrecheck {
+		return false
+	}
+	if t := strings.ToLower(cfg.Proxy.Type); t == "quic" || t == "kcp" || t == "mkcp" {
+		return false
+	}
+	if cfg.Proxy.TLS != nil {
+		for _, a := range cfg.Proxy.TLS.ALPN {
+			if strings.EqualFold(strings.TrimSpace(a), "h3") {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// precheckTimeout: an IP whose TCP handshake takes longer than the latency
+// limit can never pass, so wait at most that long (1–5 s, ≤ scan timeout).
+func precheckTimeout(cfg *config.Config) time.Duration {
+	t := 2500 * time.Millisecond
+	if cfg.Scan.MaxLatency > 0 {
+		t = time.Duration(cfg.Scan.MaxLatency) * time.Millisecond
+	}
+	if t < time.Second {
+		t = time.Second
+	}
+	if t > 5*time.Second {
+		t = 5 * time.Second
+	}
+	if st := cfg.GetTimeout(); st > 0 && t > st {
+		t = st
+	}
+	return t
 }
 
 // tcpProbeTimeout bounds the raw TCP-connect probe to a short, fixed budget —

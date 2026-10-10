@@ -70,6 +70,9 @@ type UI struct {
 	saveMu                                   sync.Mutex
 	loading                                  bool
 	lastLog                                  string
+	lastLogGen                               uint64
+	lastTable                                time.Time
+	lastCount                                int
 }
 
 func New(a fyne.App, w fyne.Window, dataDir, version string, mobile bool) *UI {
@@ -171,6 +174,10 @@ func New(a fyne.App, w fyne.Window, dataDir, version string, mobile bool) *UI {
 	u.Tabs.OnSelected = func(t *container.TabItem) {
 		if t == u.Tabs.Items[4] {
 			u.refreshHistory()
+			u.refreshLog(true)
+		}
+		if t == u.Tabs.Items[3] {
+			u.refreshResults()
 		}
 	}
 	title := canvas.NewText("Scaner", theme.ForegroundColor())
@@ -707,13 +714,21 @@ func (u *UI) StartRefresh() {
 						if total > 0 {
 							u.Progress.SetValue(float64(done) / float64(total))
 						}
-						u.refreshResults()
+						u.refreshResultsThrottled()
 						u.refreshLive(r, true)
-						if r.Config.Output.SaveIntermediateResults && time.Since(u.lastSave) > 5*time.Second {
+						// Rewriting every result file costs more as results grow;
+						// space intermediate saves out accordingly (5–60 s).
+						every := 5*time.Second + time.Duration(r.Results.Count()/2000)*time.Second
+						if every > time.Minute {
+							every = time.Minute
+						}
+						if r.Config.Output.SaveIntermediateResults && time.Since(u.lastSave) > every {
 							u.lastSave = time.Now()
 							stamp := u.runStamp
 							go func() {
-								u.saveMu.Lock()
+								if !u.saveMu.TryLock() {
+									return // previous save still running
+								}
 								defer u.saveMu.Unlock()
 								if _, err := appcore.SaveResults(u.DataDir, r.Config, r.Results, stamp); err != nil {
 									applog.Logf("intermediate save failed: %v", err)
@@ -721,19 +736,51 @@ func (u *UI) StartRefresh() {
 							}()
 						}
 					}
-					lines := applog.Snapshot()
-					if len(lines) > 300 {
-						lines = lines[len(lines)-300:]
-					}
-					text := strings.Join(lines, "\n")
-					if text != u.lastLog {
-						u.lastLog = text
-						u.Log.SetText(text)
-					}
+					u.refreshLog(false)
 				})
 			}
 		}
 	}()
+}
+
+// refreshResultsThrottled keeps the UI thread free during big scans: the
+// result table is only re-sorted when it is visible and results changed, at
+// most every 0.4 s (1.5 s above 5,000 results). The summary is always cheap.
+func (u *UI) refreshResultsThrottled() {
+	if u.results == nil {
+		return
+	}
+	n := u.results.Count()
+	visible := u.Tabs != nil && u.Tabs.SelectedIndex() == 3
+	interval := 400 * time.Millisecond
+	if n > 5000 {
+		interval = 1500 * time.Millisecond
+	}
+	if visible && n != u.lastCount && time.Since(u.lastTable) >= interval {
+		u.refreshResults()
+		return
+	}
+	u.Summary.SetText(fmt.Sprintf("%d tested · %d good", n, u.results.SuccessCount()))
+}
+
+// refreshLog only rebuilds the log view when it is visible and new lines exist.
+func (u *UI) refreshLog(force bool) {
+	if u.Log == nil {
+		return
+	}
+	if !force && (u.Tabs == nil || u.Tabs.SelectedIndex() != 4) {
+		return
+	}
+	g := applog.Generation()
+	if !force && g == u.lastLogGen {
+		return
+	}
+	u.lastLogGen = g
+	text := strings.Join(applog.Tail(300), "\n")
+	if text != u.lastLog {
+		u.lastLog = text
+		u.Log.SetText(text)
+	}
 }
 
 func (u *UI) Close() {
@@ -997,7 +1044,9 @@ func (u *UI) refreshResults() {
 		}
 	}
 	u.Table.Refresh()
-	u.Summary.SetText(fmt.Sprintf("%d tested · %d good", u.results.Count(), u.results.SuccessCount()))
+	u.lastTable = time.Now()
+	u.lastCount = u.results.Count()
+	u.Summary.SetText(fmt.Sprintf("%d tested · %d good", u.lastCount, u.results.SuccessCount()))
 }
 
 func (u *UI) copySelected() {

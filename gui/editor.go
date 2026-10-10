@@ -176,7 +176,7 @@ func friendly(s string) string {
 	known := map[string]string{
 		"uuid": "VLESS UUID", "sni": "SNI", "alpn": "ALPN (comma-separated)", "ws": "WebSocket / HTTP upgrade", "grpc": "gRPC", "xhttp": "XHTTP", "tls": "TLS", "reality": "Reality",
 		"timeout": "Timeout (seconds)", "maxLatency": "Maximum latency (ms)", "maxLoss": "Maximum loss (%) · 0 = no filter", "minUpload": "Minimum upload (Mbps)", "minDownload": "Minimum download (Mbps)",
-		"uploadBytes": "Upload payload (bytes)", "downloadBytes": "Download payload (bytes)", "sampleSize": "IPs per subnet · 0 = all", "maxIPs": "Maximum IPs · 0 = all", "successThreshold": "Success threshold (0–1)", "directory": "Output directory",
+		"uploadBytes": "Upload payload (bytes)", "downloadBytes": "Download payload (bytes)", "sampleSize": "IPs per subnet · 0 = all", "tcpPrecheck": "Fast TCP pre-check (skip dead IPs quickly)", "maxIPs": "Maximum IPs · 0 = all", "successThreshold": "Success threshold (0–1)", "directory": "Output directory",
 		"length": "Length (bytes, e.g. 10-20)", "interval": "Interval (ms, e.g. 10-20)", "testIP": "Optimization test IP", "realisticPing": "Realistic warm ping", "handshakeTest": "TLS handshake test", "lossTest": "Packet-loss test",
 	}
 	if s, ok := known[s]; ok {

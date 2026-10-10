@@ -109,6 +109,13 @@ limited to 4,000,000 generated IPs.
 تصادفی می‌سازد (۰ = همه)، و در «IP list» دقیقاً همان آی‌پی‌های واردشده به همان
 ترتیب اسکن می‌شوند. «Check connection» فقط آدرس سرور را تست می‌کند، نه رنج‌ها را.
 
+**Speed (3.1.4).** Before starting Xray for an IP, the scanner does a fast TCP
+connect to ip:port (Settings → Fast TCP pre-check, on by default; skipped for
+QUIC/h3). Dead IPs fail in about 2 s instead of an Xray start plus timeout ×
+retries. The log is buffered instead of flushed to disk on every line, the
+result table re-sorts only when visible (at most every 0.4–1.5 s), and
+intermediate saves are spaced out as results grow.
+
 Keyboard: **Tab / Shift+Tab**, standard entry copy/paste and arrows;
 **Ctrl+O** applies pasted connection, **Ctrl+S** saves, **Ctrl+R** starts/stops,
 **Ctrl+P** pauses/resumes, **Ctrl+Shift+C** copies the selected IP.

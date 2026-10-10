@@ -47,6 +47,7 @@ type Result struct {
 // ResultCollector collects and manages scan results
 type ResultCollector struct {
 	results []Result
+	good    int // successful results, kept so SuccessCount is O(1)
 	mu      sync.Mutex
 	onAdd   func(Result)
 }
@@ -72,6 +73,9 @@ func (rc *ResultCollector) Add(result Result) {
 	result.LatencyMs = result.Latency.Milliseconds()
 	result.TestedAt = time.Now()
 	rc.results = append(rc.results, result)
+	if result.Success {
+		rc.good++
+	}
 	cb := rc.onAdd
 	rc.mu.Unlock()
 
@@ -132,13 +136,7 @@ func (rc *ResultCollector) SuccessCount() int {
 	rc.mu.Lock()
 	defer rc.mu.Unlock()
 
-	count := 0
-	for _, r := range rc.results {
-		if r.Success {
-			count++
-		}
-	}
-	return count
+	return rc.good
 }
 
 // SaveToCSV saves results to a CSV file
@@ -224,6 +222,11 @@ func (rc *ResultCollector) SaveToJSON(path string) error {
 func NewResultCollectorFrom(results []Result) *ResultCollector {
 	rc := NewResultCollector()
 	rc.results = append(rc.results, results...)
+	for _, r := range results {
+		if r.Success {
+			rc.good++
+		}
+	}
 	return rc
 }
 

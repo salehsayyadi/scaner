@@ -125,6 +125,10 @@ type ScanConfig struct {
 	MaxIPs     int    `json:"maxIPs"`
 	Shuffle    bool   `json:"shuffle"`
 	SampleSize int    `json:"sampleSize"` // IPs per subnet
+	// TCPPrecheck connects to ip:port before starting Xray; IPs that do not
+	// answer are reported as failed in ~2 s instead of costing a full Xray
+	// start plus timeout × retries. Skipped automatically for QUIC/h3.
+	TCPPrecheck bool `json:"tcpPrecheck"`
 
 	// Measurement settings (realistic ping, packet loss, upload/download)
 	RealisticPing bool    `json:"realisticPing"` // warm the tunnel then take min of samples (matches v2rayN)
@@ -187,14 +191,15 @@ func DefaultConfig() *Config {
 			},
 		},
 		Scan: ScanConfig{
-			Threads:    1,
-			Timeout:    10,
-			TestURL:    "https://www.gstatic.com/generate_204",
-			MaxLatency: 2500,
-			Retries:    2,
-			MaxIPs:     0,
-			Shuffle:    true,
-			SampleSize: 1,
+			Threads:     1,
+			Timeout:     10,
+			TestURL:     "https://www.gstatic.com/generate_204",
+			MaxLatency:  2500,
+			Retries:     2,
+			MaxIPs:      0,
+			Shuffle:     true,
+			SampleSize:  1,
+			TCPPrecheck: true,
 
 			RealisticPing: true,
 			HandshakeTest: true,

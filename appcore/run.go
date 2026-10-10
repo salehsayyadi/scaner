@@ -320,6 +320,12 @@ func (r *Run) connectivity() error {
 	if threads > len(r.IPs) {
 		threads = len(r.IPs)
 	}
+	// A reply slower than the latency limit is rejected anyway, so do not wait
+	// the full scan timeout for it on every retry of a dead address.
+	pingTimeout := r.Config.GetTimeout()
+	if ml := time.Duration(r.Config.Scan.MaxLatency) * time.Millisecond; ml > 0 && ml+500*time.Millisecond < pingTimeout {
+		pingTimeout = ml + 500*time.Millisecond
+	}
 	for i := 0; i < threads; i++ {
 		wg.Add(1)
 		go func() {
@@ -342,7 +348,7 @@ func (r *Run) connectivity() error {
 				r.setActive(ip, true)
 				var v utils.PingResult
 				for n := 0; n < tries && r.ctx.Err() == nil; n++ {
-					v = utils.Ping(ip, r.Config.GetTimeout())
+					v = utils.Ping(ip, pingTimeout)
 					if v.Success {
 						break
 					}
