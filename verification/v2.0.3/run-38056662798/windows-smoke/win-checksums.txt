@@ -1,0 +1,3 @@
+Scaner-2.0.3-windows-amd64.exe: OK
+Scaner-Setup-2.0.3.exe: OK
+Scaner-cli-2.0.3-windows-amd64.exe: OK
