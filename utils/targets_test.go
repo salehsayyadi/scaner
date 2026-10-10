@@ -94,3 +94,42 @@ func TestBuildTargetsRejectsHugeExpansion(t *testing.T) {
 		t.Fatalf("truncate=%+v", p.Ranges)
 	}
 }
+
+func TestRangesCopiedFromChatsAreAllRecognized(t *testing.T) {
+	text := "185.133.35.0/16\n\u200f208.86.168.0/16\u200f\n\u200e۲۱۲.۱۸۳.۸۸.۰/۱۶\n104.16.0.0/24، 104.17.0.0/24 # comment 9.9.9.9\n\"172.64.0.0/24\",\n1.1.1.0 - 1.1.1.255\nCloudflare: 8.8.8.8"
+	ranges, _, invalid := PlanRanges(text, 1, false)
+	want := []string{"185.133.35.0/16", "208.86.168.0/16", "212.183.88.0/16", "104.16.0.0/24", "104.17.0.0/24", "172.64.0.0/24", "1.1.1.0/24"}
+	if invalid != 1 || len(ranges) != len(want)+1 {
+		t.Fatalf("invalid=%d ranges=%+v", invalid, ranges)
+	}
+	for i, w := range want {
+		if ranges[i].Entered != w {
+			t.Fatalf("range %d = %q, want %q", i, ranges[i].Entered, w)
+		}
+	}
+	if ranges[len(want)].Entered != SingleIPsLabel || ranges[len(want)].Queued != 1 {
+		t.Fatalf("singles=%+v", ranges[len(want)])
+	}
+	p, err := BuildTargets(text, 1, false, true)
+	if err != nil || len(p.IPs) != 8 {
+		t.Fatalf("ips=%v err=%v", p, err)
+	}
+	for _, r := range p.Ranges {
+		if r.Queued != 1 {
+			t.Fatalf("every range must be scanned: %+v", p.Ranges)
+		}
+	}
+}
+
+func TestDashRangeToCIDRs(t *testing.T) {
+	got, ok := rangeToCIDRs("10.0.0.1", "10.0.0.6")
+	want := []string{"10.0.0.1/32", "10.0.0.2/31", "10.0.0.4/31", "10.0.0.6/32"}
+	if !ok || len(got) != len(want) {
+		t.Fatalf("%v", got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("%v", got)
+		}
+	}
+}

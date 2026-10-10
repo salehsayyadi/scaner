@@ -2,11 +2,14 @@ package utils
 
 import (
 	"bufio"
+	"encoding/binary"
 	"fmt"
 	"math/rand"
 	"net"
 	"os"
+	"regexp"
 	"strings"
+	"unicode"
 )
 
 // ParseIPsFromFile reads IP addresses and CIDR blocks from a file
@@ -163,20 +166,123 @@ func CountRanges(text string, sampleSize int) (int, bool) {
 	return total, any
 }
 
-// tokenizeRanges splits a free-form range block into tokens.
+// tokenizeRanges splits a free-form range block into IP / CIDR tokens.
+//
+// Text copied from chats and web pages often contains invisible direction
+// marks (U+200E/U+200F), zero-width characters, Persian/Arabic digits, Persian
+// commas or labels next to the address. Those used to make every range except
+// the first one invalid, so only one range was scanned. They are normalized here.
+// Start-end ranges (1.2.3.0-1.2.3.255) are converted to CIDR blocks.
 func tokenizeRanges(text string) []string {
-	fields := strings.FieldsFunc(text, func(r rune) bool {
-		return r == '\n' || r == '\r' || r == ',' || r == ' ' || r == '\t' || r == ';'
-	})
-	out := fields[:0]
-	for _, tok := range fields {
-		tok = strings.TrimSpace(tok)
-		if tok == "" || strings.HasPrefix(tok, "#") {
-			continue
+	text = normalizeRangeText(text)
+	text = dashRangeRe.ReplaceAllString(text, "$1-$2")
+	var out []string
+	for _, line := range strings.Split(text, "\n") {
+		if i := strings.Index(line, "#"); i >= 0 {
+			line = line[:i] // comment until end of line
 		}
-		out = append(out, tok)
+		fields := strings.FieldsFunc(line, func(r rune) bool {
+			return unicode.IsSpace(r) || r == ',' || r == ';' || r == '|' || r == '،' || r == '؛'
+		})
+		for _, tok := range fields {
+			tok = strings.Trim(strings.TrimSpace(tok), "\"'`()[]{}<>")
+			if tok != "" {
+				out = append(out, splitRangeToken(tok)...)
+			}
+		}
 	}
 	return out
+}
+
+var (
+	dashRangeRe = regexp.MustCompile(`(\d{1,3}(?:\.\d{1,3}){3})\s*[-–—]\s*(\d{1,3}(?:\.\d{1,3}){3})`)
+	ipv4TokRe   = regexp.MustCompile(`\d{1,3}(?:\.\d{1,3}){3}(?:/\d{1,2})?`)
+)
+
+func normalizeRangeText(text string) string {
+	var b strings.Builder
+	b.Grow(len(text))
+	for _, r := range text {
+		switch {
+		case r >= '۰' && r <= '۹':
+			r = '0' + (r - '۰')
+		case r >= '٠' && r <= '٩':
+			r = '0' + (r - '٠')
+		case r == '٫' || r == '。' || r == '．':
+			r = '.'
+		case r == '／':
+			r = '/'
+		case r == '\uFEFF' || unicode.Is(unicode.Cf, r):
+			r = ' '
+		}
+		if r == '\n' {
+		} else if !unicode.IsSpace(r) {
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
+}
+
+// splitRangeToken returns the usable IP/CIDR tokens inside tok. Invalid
+// tokens are returned unchanged so callers can count them as invalid.
+func splitRangeToken(tok string) []string {
+	if isIPOrCIDR(tok) {
+		return []string{tok}
+	}
+	if i := strings.IndexAny(tok, "-–—"); i > 0 {
+		if cidrs, ok := rangeToCIDRs(tok[:i], strings.TrimLeft(tok[i:], "-–—")); ok {
+			return cidrs
+		}
+	}
+	if found := ipv4TokRe.FindAllString(tok, -1); len(found) > 0 {
+		var out []string
+		for _, f := range found {
+			if isIPOrCIDR(f) {
+				out = append(out, f)
+			}
+		}
+		if len(out) > 0 {
+			return out
+		}
+	}
+	return []string{tok}
+}
+
+func isIPOrCIDR(s string) bool {
+	if strings.Contains(s, "/") {
+		_, _, err := net.ParseCIDR(s)
+		return err == nil
+	}
+	return net.ParseIP(s) != nil
+}
+
+// rangeToCIDRs converts an inclusive IPv4 start-end range to CIDR blocks.
+func rangeToCIDRs(a, b string) ([]string, bool) {
+	s, e := net.ParseIP(strings.TrimSpace(a)).To4(), net.ParseIP(strings.TrimSpace(b)).To4()
+	if s == nil || e == nil {
+		return nil, false
+	}
+	start := uint64(binary.BigEndian.Uint32(s))
+	end := uint64(binary.BigEndian.Uint32(e))
+	if start > end {
+		return nil, false
+	}
+	var out []string
+	for start <= end {
+		size := uint(0)
+		for size < 32 {
+			block := uint64(1) << (size + 1)
+			if start%block != 0 || start+block-1 > end {
+				break
+			}
+			size++
+		}
+		ip := make(net.IP, 4)
+		binary.BigEndian.PutUint32(ip, uint32(start))
+		out = append(out, fmt.Sprintf("%s/%d", ip, 32-size))
+		start += uint64(1) << size
+	}
+	return out, true
 }
 
 // incrementIP increments an IP address by 1
