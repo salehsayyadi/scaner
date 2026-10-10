@@ -1,0 +1,4 @@
+ 58486424  1980-00-00 00:00   lib/armeabi-v7a/libscaner.so
+ 61427712  1980-00-00 00:00   lib/arm64-v8a/libscaner.so
+ 59715556  1980-00-00 00:00   lib/x86/libscaner.so
+ 64682192  1980-00-00 00:00   lib/x86_64/libscaner.so

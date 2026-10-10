@@ -1,0 +1,18 @@
+Verifies
+Verified using v1 scheme (JAR signing): true
+Verified using v2 scheme (APK Signature Scheme v2): true
+Verified using v3 scheme (APK Signature Scheme v3): true
+Verified using v3.1 scheme (APK Signature Scheme v3.1): false
+Verified using v4 scheme (APK Signature Scheme v4): false
+Verified for SourceStamp: false
+Number of signers: 1
+Signer #1 certificate DN: O=Public Gomobile Test Key, CN=Scaner Personal Build
+Signer #1 certificate SHA-256 digest: 3ff5417cc269f8ea91212da6fa5e057088c8de88b9da554e1837cd85793cddb5
+Signer #1 certificate SHA-1 digest: fab55fde732c03ba0a0730f5b1f94adb59c22ea0
+Signer #1 certificate MD5 digest: 659c5a88d640e98597f3cad1c93f92ec
+Signer #1 key algorithm: RSA
+Signer #1 key size (bits): 2048
+Signer #1 public key SHA-256 digest: 1ece7568832b6e35fda5133ef5ec1eed9891299acf2fcf9bbd4a955bd7a97977
+Signer #1 public key SHA-1 digest: ee9a6efd64feff8344e3e6be0f2b3371611f157b
+Signer #1 public key MD5 digest: f3ecbc84b18780d91c3572182e5fb132
+zipalign -P 16 4: OK

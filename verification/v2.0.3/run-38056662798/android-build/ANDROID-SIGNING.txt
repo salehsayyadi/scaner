@@ -1,0 +1,1 @@
+Android signing: PUBLIC TEST KEY; personal/testing APK, not a production identity

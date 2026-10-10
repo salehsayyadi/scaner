@@ -1,0 +1,2 @@
+package: com.piyazche.scaner
+uses-permission: name='android.permission.INTERNET'

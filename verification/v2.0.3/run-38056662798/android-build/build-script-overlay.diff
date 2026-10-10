@@ -1,0 +1,28 @@
+diff --git a/tools/build_android.sh b/tools/build_android.sh
+index e0c8a04..eba5f77 100644
+--- a/tools/build_android.sh
++++ b/tools/build_android.sh
+@@ -34,9 +34,13 @@ Path("cmd/scaner/AndroidManifest.xml").write_text(f'''<manifest xmlns:android="h
+ </manifest>''')
+ PY
+ trap 'rm -f cmd/scaner/AndroidManifest.xml' EXIT
+-fyne package --os android/arm64,android/arm --src cmd/scaner \
+-  --appID com.piyazche.scaner --name Scaner --icon build/icon.png \
+-  --appVersion "$VERSION" --appBuild "$VERSION_CODE"
++# fyne resolves a relative --icon against --src, so pass an absolute path.
++# fyne does not accept --src for mobile builds; run it inside the package.
++# "--os android" produces one universal APK (arm64-v8a, armeabi-v7a, x86, x86_64).
++ROOT="$PWD"
++(cd cmd/scaner && fyne package --os android \
++  --appID com.piyazche.scaner --name Scaner --icon "$ROOT/build/icon.png" \
++  --appVersion "$VERSION" --appBuild "$VERSION_CODE")
+ APK="$(find . -name 'Scaner.apk' -o -name 'scaner.apk' | head -1)"
+ test -n "$APK"
+ TOOLS="${ANDROID_SDK_ROOT:-$ANDROID_HOME}/build-tools/35.0.0"
+@@ -67,4 +71,4 @@ else
+ fi
+ "$TOOLS/apksigner" verify --verbose "$OUT"
+ "$TOOLS/zipalign" -c -P 16 4 "$OUT"
+-"$TOOLS/aapt" dump badging "$OUT" | grep -E 'package:|sdkVersion:|targetSdkVersion:|native-code:'
+\ No newline at end of file
++"$TOOLS/aapt" dump badging "$OUT" | grep -E 'package:|sdkVersion:|targetSdkVersion:|native-code:'
