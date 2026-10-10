@@ -35,9 +35,12 @@ Path("cmd/scaner/AndroidManifest.xml").write_text(f'''<manifest xmlns:android="h
 PY
 trap 'rm -f cmd/scaner/AndroidManifest.xml' EXIT
 # fyne resolves a relative --icon against --src, so pass an absolute path.
-fyne package --os android --src cmd/scaner \
-  --appID com.piyazche.scaner --name Scaner --icon "$PWD/build/icon.png" \
-  --appVersion "$VERSION" --appBuild "$VERSION_CODE"
+# fyne does not accept --src for mobile builds; run it inside the package.
+# "--os android" produces one universal APK (arm64-v8a, armeabi-v7a, x86, x86_64).
+ROOT="$PWD"
+(cd cmd/scaner && fyne package --os android \
+  --appID com.piyazche.scaner --name Scaner --icon "$ROOT/build/icon.png" \
+  --appVersion "$VERSION" --appBuild "$VERSION_CODE")
 APK="$(find . -name 'Scaner.apk' -o -name 'scaner.apk' | head -1)"
 test -n "$APK"
 TOOLS="${ANDROID_SDK_ROOT:-$ANDROID_HOME}/build-tools/35.0.0"
