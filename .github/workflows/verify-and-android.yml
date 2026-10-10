@@ -17,16 +17,40 @@ permissions:
   contents: write
 
 concurrency:
-  group: scaner-verify-android
+  group: scaner-verify-android-v2
   cancel-in-progress: false
 
 env:
   TAG: ${{ inputs.tag || 'v2.0.3' }}
 
 jobs:
+  started:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - run: mkdir -p evidence && date -u > evidence/started.txt
+      - name: Publish this job's evidence to the ci-evidence branch
+        if: always()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          D="verification/$TAG/run-$GITHUB_RUN_ID/$GITHUB_JOB"
+          git clone -q --depth 1 -b ci-evidence "https://x-access-token:$GH_TOKEN@github.com/$GITHUB_REPOSITORY.git" evrepo
+          mkdir -p "evrepo/$D"; cp -r evidence/. "evrepo/$D/" 2>/dev/null || true
+          echo "$JOB_STATUS" > "evrepo/$D/status.txt"
+          cd evrepo
+          git config user.name "github-actions[bot]"; git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A; git commit -qm "ci: $GITHUB_JOB evidence for $TAG [skip ci]"
+          for i in 1 2 3 4 5 6; do git push -q origin HEAD:ci-evidence && break; sleep $((i*3)); git pull -q --rebase origin ci-evidence; done
+
   windows-smoke:
     runs-on: windows-latest
+    timeout-minutes: 30
     steps:
+      - run: mkdir -p evidence
+        shell: bash
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -146,15 +170,27 @@ jobs:
           Start-Sleep 5
           Log ("uninstall exit=$($u.ExitCode); exe still present: $(Test-Path "$app\Scaner.exe"); start shortcut present: $(Test-Path $lnkStart); user data kept: $(Test-Path $data)")
           if (Test-Path "$app\Scaner.exe") { throw 'uninstall left the program' }
-      - uses: actions/upload-artifact@v4
+      - name: Publish this job's evidence to the ci-evidence branch
         if: always()
-        with:
-          name: evidence-windows
-          path: evidence/
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          D="verification/$TAG/run-$GITHUB_RUN_ID/$GITHUB_JOB"
+          git clone -q --depth 1 -b ci-evidence "https://x-access-token:$GH_TOKEN@github.com/$GITHUB_REPOSITORY.git" evrepo
+          mkdir -p "evrepo/$D"; cp -r evidence/. "evrepo/$D/" 2>/dev/null || true
+          echo "$JOB_STATUS" > "evrepo/$D/status.txt"
+          cd evrepo
+          git config user.name "github-actions[bot]"; git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A; git commit -qm "ci: $GITHUB_JOB evidence for $TAG [skip ci]"
+          for i in 1 2 3 4 5 6; do git push -q origin HEAD:ci-evidence && break; sleep $((i*3)); git pull -q --rebase origin ci-evidence; done
 
   android-build:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
+      - run: mkdir -p evidence
       - uses: actions/checkout@v4
         with:
           ref: ${{ env.TAG }}
@@ -174,13 +210,13 @@ jobs:
           SDKM="$SDK/cmdline-tools/latest/bin/sdkmanager"
           [ -x "$SDKM" ] || SDKM="$(ls "$SDK"/cmdline-tools/*/bin/sdkmanager | sort -V | tail -1)"
           yes | "$SDKM" --licenses > /dev/null || true
-          "$SDKM" --install "platforms;android-35" "build-tools;35.0.0" "ndk;27.2.12479018" > /dev/null
+          "$SDKM" --install "platforms;android-35" "build-tools;35.0.0" "ndk;27.2.12479018" > evidence/sdk-install.log 2>&1 || { tail -60 evidence/sdk-install.log; exit 1; }
           echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
           echo "ANDROID_NDK_HOME=$SDK/ndk/27.2.12479018" >> "$GITHUB_ENV"
       - name: Install pinned packaging tools
         run: |
           python -m pip install Pillow==11.3.0
-          go install fyne.io/fyne/v2/cmd/fyne@v2.6.3
+          go install fyne.io/fyne/v2/cmd/fyne@v2.6.3 2>&1 | tee evidence/fyne-install.log
       - name: Build and verify the ARM64/ARMv7 APK
         shell: bash
         env:
@@ -210,15 +246,27 @@ jobs:
           name: android-apk
           path: dist/*.apk
           if-no-files-found: error
-      - uses: actions/upload-artifact@v4
+      - name: Publish this job's evidence to the ci-evidence branch
         if: always()
-        with:
-          name: evidence-android-build
-          path: evidence/
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          D="verification/$TAG/run-$GITHUB_RUN_ID/$GITHUB_JOB"
+          git clone -q --depth 1 -b ci-evidence "https://x-access-token:$GH_TOKEN@github.com/$GITHUB_REPOSITORY.git" evrepo
+          mkdir -p "evrepo/$D"; cp -r evidence/. "evrepo/$D/" 2>/dev/null || true
+          echo "$JOB_STATUS" > "evrepo/$D/status.txt"
+          cd evrepo
+          git config user.name "github-actions[bot]"; git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A; git commit -qm "ci: $GITHUB_JOB evidence for $TAG [skip ci]"
+          for i in 1 2 3 4 5 6; do git push -q origin HEAD:ci-evidence && break; sleep $((i*3)); git pull -q --rebase origin ci-evidence; done
 
   android-emulator:
     runs-on: ubuntu-latest
+    timeout-minutes: 50
     steps:
+      - run: mkdir -p evidence
       - uses: actions/checkout@v4
         with:
           ref: ${{ env.TAG }}
@@ -238,7 +286,7 @@ jobs:
           SDKM="$SDK/cmdline-tools/latest/bin/sdkmanager"
           [ -x "$SDKM" ] || SDKM="$(ls "$SDK"/cmdline-tools/*/bin/sdkmanager | sort -V | tail -1)"
           yes | "$SDKM" --licenses > /dev/null || true
-          "$SDKM" --install "platforms;android-35" "build-tools;35.0.0" "ndk;27.2.12479018" > /dev/null
+          "$SDKM" --install "platforms;android-35" "build-tools;35.0.0" "ndk;27.2.12479018" > evidence/sdk-install.log 2>&1 || { tail -60 evidence/sdk-install.log; exit 1; }
           echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
           echo "ANDROID_NDK_HOME=$SDK/ndk/27.2.12479018" >> "$GITHUB_ENV"
       - name: Build an x86_64 test APK from the same tag (emulator only, not published)
@@ -246,10 +294,10 @@ jobs:
         run: |
           set -euo pipefail
           python -m pip install Pillow==11.3.0
-          go install fyne.io/fyne/v2/cmd/fyne@v2.6.3
+          go install fyne.io/fyne/v2/cmd/fyne@v2.6.3 2>&1 | tee evidence/fyne-install.log
           sed 's#--os android/arm64,android/arm#--os android/amd64#' tools/build_android.sh > tools/build_android_x86_64_test.sh
           grep -q -- '--os android/amd64' tools/build_android_x86_64_test.sh
-          bash tools/build_android_x86_64_test.sh
+          bash tools/build_android_x86_64_test.sh 2>&1 | tee evidence/x86_64-build.log
           mv dist/Scaner-*-android.apk test-x86_64.apk
           mkdir -p evidence
           cat > tools/android_smoke.sh <<'SH'
@@ -292,16 +340,28 @@ jobs:
           target: google_apis
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
-          script: bash tools/android_smoke.sh
-      - uses: actions/upload-artifact@v4
+          script: bash tools/android_smoke.sh > evidence/emu-script.log 2>&1
+      - name: Publish this job's evidence to the ci-evidence branch
         if: always()
-        with:
-          name: evidence-android-emulator
-          path: evidence/
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          D="verification/$TAG/run-$GITHUB_RUN_ID/$GITHUB_JOB"
+          git clone -q --depth 1 -b ci-evidence "https://x-access-token:$GH_TOKEN@github.com/$GITHUB_REPOSITORY.git" evrepo
+          mkdir -p "evrepo/$D"; cp -r evidence/. "evrepo/$D/" 2>/dev/null || true
+          echo "$JOB_STATUS" > "evrepo/$D/status.txt"
+          cd evrepo
+          git config user.name "github-actions[bot]"; git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A; git commit -qm "ci: $GITHUB_JOB evidence for $TAG [skip ci]"
+          for i in 1 2 3 4 5 6; do git push -q origin HEAD:ci-evidence && break; sleep $((i*3)); git pull -q --rebase origin ci-evidence; done
 
   android-attach:
     needs: [android-build, android-emulator]
+    if: ${{ always() && needs.android-build.result == 'success' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       GH_REPO: ${{ github.repository }}
@@ -310,12 +370,18 @@ jobs:
         with:
           name: android-apk
           path: dist
-      - uses: actions/download-artifact@v4
-        with:
-          name: evidence-android-build
-          path: ev
+      - name: Read signing mode from the build evidence
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p ev
+          git clone -q --depth 1 -b ci-evidence "https://x-access-token:$GH_TOKEN@github.com/$GITHUB_REPOSITORY.git" evrepo
+          cp "evrepo/verification/$TAG/run-$GITHUB_RUN_ID/android-build/ANDROID-SIGNING.txt" ev/
       - name: Attach APK to the existing release without touching Windows files
         shell: bash
+        env:
+          EMU: ${{ needs.android-emulator.result }}
         run: |
           set -euo pipefail
           V="${TAG#v}"; APK="Scaner-$V-android.apk"
@@ -337,49 +403,12 @@ jobs:
             else
               echo "- Signed with the repository's dedicated release key."
             fi
-            echo "- Automated check: an x86_64 build of the same source installed, launched and stayed running on an Android 14 emulator. Not yet tested on a physical phone."
+            if [ "$EMU" = success ]; then
+              echo "- Automated check: an x86_64 build of the same source installed, launched and stayed running on an Android 14 emulator. Not yet tested on a physical phone."
+            else
+              echo "- Verified in CI: signature, 16 KB zip alignment, INTERNET permission and ARM64/ARMv7 libraries. The emulator launch test did not pass; install/startup is unverified. Not yet tested on a physical phone."
+            fi
             echo "- Ordinary apps cannot send raw ICMP; the app falls back to TCP connect, which is not an ICMP ping. Keep the app in the foreground while scanning. It is not a system-wide VPN."
             echo "- SHA256SUMS.txt now also lists the APK; the Windows checksums are unchanged."
           } >> notes.md
           gh release edit "$TAG" --notes-file notes.md
-
-  report:
-    needs: [windows-smoke, android-build, android-emulator, android-attach]
-    if: ${{ always() }}
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      actions: read
-    env:
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ci-evidence
-      - uses: actions/download-artifact@v4
-        with:
-          pattern: evidence-*
-          path: incoming
-      - name: Publish results and failure logs to the ci-evidence branch
-        shell: bash
-        run: |
-          set -uo pipefail
-          D="verification/${TAG}/run-${GITHUB_RUN_ID}"
-          mkdir -p "$D/failed-logs"
-          cp -r incoming/* "$D/" 2>/dev/null || true
-          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs" \
-            --jq '.jobs[] | {name, conclusion, status, url: .html_url, failed_steps: [.steps[] | select(.conclusion=="failure") | .name]}' > "$D/jobs.jsonl"
-          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs" --jq '.jobs[] | select(.conclusion=="failure") | "\(.id) \(.name)"' |
-          while read -r id name; do
-            gh api "repos/$GITHUB_REPOSITORY/actions/jobs/$id/logs" 2>/dev/null | tail -n 200 > "$D/failed-logs/${name// /_}.txt"
-          done
-          cat > "verification/${TAG}/latest.json" <<JSON
-          {"run": "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}", "dir": "$D",
-           "windows_smoke": "${{ needs.windows-smoke.result }}", "android_build": "${{ needs.android-build.result }}",
-           "android_emulator": "${{ needs.android-emulator.result }}", "android_attach": "${{ needs.android-attach.result }}"}
-          JSON
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add verification
-          git commit -m "ci: verification evidence for ${TAG} run ${GITHUB_RUN_ID} [skip ci]"
-          git push origin HEAD:ci-evidence
