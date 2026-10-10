@@ -232,6 +232,10 @@ jobs:
           # relative to --src, so pass an absolute icon path.
           sed -i 's#--icon build/icon.png#--icon "$PWD/build/icon.png"#' tools/build_android.sh
           grep -q -- '--icon "$PWD/build/icon.png"' tools/build_android.sh
+          # fyne v2.6.3 rejects a comma list of Android targets; "android" builds
+          # one universal APK (arm64-v8a, armeabi-v7a, x86, x86_64).
+          sed -i 's#--os android/arm64,android/arm #--os android #' tools/build_android.sh
+          grep -q -- '--os android ' tools/build_android.sh
           mkdir -p evidence
           bash tools/build_android.sh 2>&1 | tee evidence/android-build.log
           APK="dist/Scaner-$V-android.apk"; T="$ANDROID_HOME/build-tools/35.0.0"
@@ -404,8 +408,8 @@ jobs:
           {
             echo ""
             echo "## Android APK"
-            echo "- **$APK**: one APK for ARM64 (arm64-v8a) and 32-bit ARM (armeabi-v7a) phones. No root required. x86 Android devices are not supported."
-            echo "- Built by GitHub Actions from tag $TAG (same application code as Scaner-$V-source.zip) with one packaging fix: tools/build_android.sh now passes an absolute icon path to fyne. That fix is in main and in later releases."
+            echo "- **$APK**: one universal APK for ARM64 (arm64-v8a), 32-bit ARM (armeabi-v7a), x86 and x86_64 Android devices. No root required."
+            echo "- Built by GitHub Actions from tag $TAG (same application code as Scaner-$V-source.zip) with two packaging-only fixes in tools/build_android.sh: an absolute icon path and the fyne target \`--os android\`. These fixes are in main and in later releases."
             if grep -q 'PUBLIC TEST KEY' ev/ANDROID-SIGNING.txt; then
               echo "- **Testing build signed with a public test key.** This is not a secure production signing identity."
             else
