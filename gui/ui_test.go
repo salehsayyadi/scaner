@@ -13,6 +13,7 @@ import (
 	"piyazche/appcore"
 	"piyazche/config"
 	"piyazche/scanner"
+	"piyazche/utils"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
@@ -154,6 +155,7 @@ func TestRenderNativeScreens(t *testing.T) {
 		u.ImportText.SetText("vless://00000000-0000-0000-0000-000000000001@example.invalid:443?type=ws&security=tls&sni=example.invalid&path=%2Fws")
 		test.Tap(u.Apply)
 		u.Source.SetText("192.0.2.0/24\n198.51.100.0/24")
+		u.PerRange.SetText("10")
 		u.results.Add(scanner.Result{IP: "192.0.2.10", Success: true, Latency: 48 * time.Millisecond, TCPOK: true, TCPMs: 12, HandshakeMs: 67, JitterMs: 3, LossPercent: 0, UploadTested: true, UploadMbps: 8.24, DownloadTested: true, DownloadMbps: 23.50})
 		u.results.Add(scanner.Result{IP: "198.51.100.22", Success: true, Latency: 71 * time.Millisecond, TCPOK: true, TCPMs: 15, HandshakeMs: 91, JitterMs: 6, LossPercent: 0, UploadTested: true, UploadMbps: 5.13, DownloadTested: true, DownloadMbps: 18.10})
 		u.results.Add(scanner.Result{IP: "192.0.2.99", Success: false, Error: "Connection timed out"})
@@ -191,6 +193,11 @@ func TestRenderNativeScreens(t *testing.T) {
 		u.Start.Disable()
 		u.Pause.Enable()
 		u.Stop.Enable()
+		u.Current.SetText("Now scanning 192.0.2.41 +7 more · range 192.0.2.0/24")
+		u.Breakdown.SetText(formatRanges([]appcore.RangeStat{
+			{RangeInfo: utils.RangeInfo{Entered: "192.0.2.0/24", Network: "192.0.2.0/24", Hosts: 254, Queued: 10}, Tested: 6, Good: 2},
+			{RangeInfo: utils.RangeInfo{Entered: "198.51.100.0/24", Network: "198.51.100.0/24", Hosts: 254, Queued: 10}, Tested: 4, Good: 1},
+		}, true, 15))
 		capture("running")
 		u.Close()
 		w.Close()

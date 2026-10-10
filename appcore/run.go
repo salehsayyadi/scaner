@@ -3,6 +3,8 @@ package appcore
 import (
 	"context"
 	"fmt"
+	"net"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -21,11 +23,41 @@ const (
 	ModeCheck        = "Check connection"
 )
 
+// Target sources for Proxy scan and Connectivity.
+const (
+	// SourceRanges generates the IPs from the entered CIDR ranges, taking
+	// "IPs per range" random addresses from each range (0 = every address).
+	SourceRanges = "Range scan"
+	// SourceIPList scans the entered addresses exactly as given: in order, no
+	// sampling and no shuffling (a CIDR in the list is expanded completely).
+	SourceIPList = "IP list"
+)
+
+// ServerAddressLabel names the only target of Check connection.
+const ServerAddressLabel = "Server address (Connection tab)"
+
+// RangeStat is the live state of one entered range.
+type RangeStat struct {
+	utils.RangeInfo
+	Tested int
+	Good   int
+}
+
+// Snapshot is a consistent view of the per-range progress and the IPs that
+// are being tested right now.
+type Snapshot struct {
+	Ranges       []RangeStat
+	Active       []string // most recently started first
+	ActiveTotal  int
+	CurrentRange string // range of the most recently started IP
+}
+
 // Run owns an immutable configuration snapshot. Editing the UI while a scan or
 // an independent optimizer is running therefore cannot race with the workers.
 type Run struct {
 	Config    *config.Config
 	Mode      string
+	Source    string
 	Debug     bool
 	IPs       []string
 	Results   *scanner.ResultCollector
@@ -35,9 +67,26 @@ type Run struct {
 	paused    atomic.Bool
 	completed atomic.Int64
 	sc        *scanner.Scanner
+
+	statMu    sync.Mutex
+	ranges    []RangeStat
+	nets      []*net.IPNet // parallel to ranges; nil for the individual-IP group
+	single    int          // index of the individual-IP group, or -1
+	active    map[string]time.Time
+	lastRange int
 }
 
+// NewRun keeps the original behaviour: targets are generated from ranges.
 func NewRun(parent context.Context, cfg *config.Config, ranges, mode string, debug bool) (*Run, error) {
+	return NewRunWithSource(parent, cfg, ranges, mode, SourceRanges, debug)
+}
+
+// NewRunWithSource builds a run whose targets come from source (SourceRanges or
+// SourceIPList). Check connection always tests only the server address.
+func NewRunWithSource(parent context.Context, cfg *config.Config, ranges, mode, source string, debug bool) (*Run, error) {
+	if source != SourceIPList {
+		source = SourceRanges
+	}
 	if cfg == nil {
 		return nil, fmt.Errorf("configuration is missing")
 	}
@@ -60,37 +109,125 @@ func NewRun(parent context.Context, cfg *config.Config, ranges, mode string, deb
 		c.Scan.Timeout = 10
 	}
 	var ips []string
-	var err error
+	var infos []utils.RangeInfo
 	if mode == ModeCheck {
 		if c.Proxy.Address == "" {
 			return nil, fmt.Errorf("set the server address before checking a connection")
 		}
 		ips = []string{c.Proxy.Address}
+		infos = []utils.RangeInfo{{Entered: ServerAddressLabel, Network: c.Proxy.Address, Hosts: 1, Queued: 1}}
 	} else {
-		ips, err = utils.ParseIPsFromText(ranges, c.Scan.SampleSize, c.Scan.Shuffle)
+		plan, err := utils.BuildTargets(ranges, c.Scan.SampleSize, source == SourceIPList, c.Scan.Shuffle)
 		if err != nil {
 			return nil, err
 		}
-		if c.Scan.MaxIPs > 0 && len(ips) > c.Scan.MaxIPs {
-			ips = ips[:c.Scan.MaxIPs]
+		if c.Scan.MaxIPs > 0 {
+			plan.Truncate(c.Scan.MaxIPs)
 		}
+		ips, infos = plan.IPs, plan.Ranges
 	}
 	ctx, cancel := context.WithCancel(parent)
-	r := &Run{Config: c, Mode: mode, IPs: ips, Debug: debug, ctx: ctx, cancel: cancel}
+	r := &Run{Config: c, Mode: mode, Source: source, IPs: ips, Debug: debug, ctx: ctx, cancel: cancel, single: -1, lastRange: -1, active: map[string]time.Time{}}
+	for i, info := range infos {
+		r.ranges = append(r.ranges, RangeStat{RangeInfo: info})
+		var n *net.IPNet
+		if mode != ModeCheck && info.Network != "" {
+			_, n, _ = net.ParseCIDR(info.Network)
+		}
+		if mode != ModeCheck && info.Network == "" {
+			r.single = i
+		}
+		r.nets = append(r.nets, n)
+	}
 	if mode == ModeXray {
 		r.sc = scanner.NewScannerWithDebug(c, debug)
 		r.sc.SetSilent(true)
 		r.sc.SetIPs(ips)
 		r.Results = r.sc.GetResults()
 		r.sc.SetOnProgress(func(done, _ int) { r.completed.Store(int64(done)) })
+		r.sc.SetOnActive(r.setActive)
 	} else {
 		r.Results = scanner.NewResultCollector()
 	}
 	r.Results.SetOnAdd(func(v scanner.Result) {
+		r.countResult(v)
 		applog.Logf("IP=%s success=%v ping=%dms TCP=%dms handshake=%dms jitter=%dms loss=%.1f%% upload=%.2fMbps download=%.2fMbps error=%s",
 			v.IP, v.Success, v.LatencyMs, v.TCPMs, v.HandshakeMs, v.JitterMs, v.LossPercent, v.UploadMbps, v.DownloadMbps, v.Error)
 	})
 	return r, nil
+}
+
+// rangeIndex returns the entered range an IP was generated from.
+func (r *Run) rangeIndex(ip string) int {
+	if r.Mode == ModeCheck {
+		return 0
+	}
+	if p := net.ParseIP(ip); p != nil {
+		for i, n := range r.nets {
+			if n != nil && n.Contains(p) {
+				return i
+			}
+		}
+	}
+	return r.single
+}
+
+// RangeOf names the range an IP belongs to ("" when unknown).
+func (r *Run) RangeOf(ip string) string {
+	if i := r.rangeIndex(ip); i >= 0 && i < len(r.ranges) {
+		return r.ranges[i].Label()
+	}
+	return ""
+}
+
+func (r *Run) setActive(ip string, on bool) {
+	idx := -1
+	if on {
+		idx = r.rangeIndex(ip)
+	}
+	r.statMu.Lock()
+	defer r.statMu.Unlock()
+	if on {
+		r.active[ip] = time.Now()
+		r.lastRange = idx
+	} else {
+		delete(r.active, ip)
+	}
+}
+
+func (r *Run) countResult(v scanner.Result) {
+	i := r.rangeIndex(v.IP)
+	r.statMu.Lock()
+	defer r.statMu.Unlock()
+	if i >= 0 && i < len(r.ranges) {
+		r.ranges[i].Tested++
+		if v.Success {
+			r.ranges[i].Good++
+		}
+	}
+}
+
+// Snapshot returns per-range progress and up to maxActive in-flight IPs.
+func (r *Run) Snapshot(maxActive int) Snapshot {
+	r.statMu.Lock()
+	defer r.statMu.Unlock()
+	s := Snapshot{Ranges: append([]RangeStat(nil), r.ranges...), ActiveTotal: len(r.active)}
+	type item struct {
+		ip string
+		at time.Time
+	}
+	items := make([]item, 0, len(r.active))
+	for ip, at := range r.active {
+		items = append(items, item{ip, at})
+	}
+	sort.Slice(items, func(a, b int) bool { return items[a].at.After(items[b].at) })
+	for i := 0; i < len(items) && (maxActive <= 0 || i < maxActive); i++ {
+		s.Active = append(s.Active, items[i].ip)
+	}
+	if r.lastRange >= 0 && r.lastRange < len(r.ranges) {
+		s.CurrentRange = r.ranges[r.lastRange].Label()
+	}
+	return s
 }
 
 func (r *Run) Stop()                { r.cancel() }
@@ -111,7 +248,10 @@ func (r *Run) Execute() error {
 	if err := r.ctx.Err(); err != nil {
 		return err
 	}
-	applog.Logf("start mode=%s IPs=%d workers=%d", r.Mode, len(r.IPs), r.Config.Scan.Threads)
+	applog.Logf("start mode=%s source=%s IPs=%d workers=%d", r.Mode, r.Source, len(r.IPs), r.Config.Scan.Threads)
+	for _, rs := range r.ranges {
+		applog.Logf("range %s hosts=%d queued=%d", rs.Label(), rs.Hosts, rs.Queued)
+	}
 	if r.Mode != ModeConnectivity && r.Config.Fragment.Enabled && r.Config.Fragment.Mode == "auto" {
 		target := r.Config.Fragment.Auto.TestIP
 		if r.Config.Proxy.Method == "reality" || target == "" {
@@ -141,6 +281,8 @@ func (r *Run) Execute() error {
 }
 
 func (r *Run) check() error {
+	r.setActive(r.IPs[0], true)
+	defer r.setActive(r.IPs[0], false)
 	port := utils.AcquirePort()
 	defer utils.ReleasePort(port)
 	b, err := config.GenerateXrayConfig(r.Config, r.IPs[0], port)
@@ -197,6 +339,7 @@ func (r *Run) connectivity() error {
 				if tries <= 0 {
 					tries = 3
 				}
+				r.setActive(ip, true)
 				var v utils.PingResult
 				for n := 0; n < tries && r.ctx.Err() == nil; n++ {
 					v = utils.Ping(ip, r.Config.GetTimeout())
@@ -204,6 +347,7 @@ func (r *Run) connectivity() error {
 						break
 					}
 				}
+				r.setActive(ip, false)
 				if r.ctx.Err() != nil {
 					return
 				}

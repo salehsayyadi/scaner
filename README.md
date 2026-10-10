@@ -89,11 +89,25 @@ software to install the program.
 | Independent, cancellable fragment optimizer | Settings → Optimize fragments |
 | Mux/concurrency/XUDP/log level | Settings → Xray & multiplexing |
 | Cloudflare, Cloudflare London, Fastly and custom ranges | Scan |
+| Range scan (generate N random IPs per CIDR, 0 = all) or IP list (scan exactly as entered) | Scan → Targets, IPs per range |
+| Per-range host count, queued/tested/good counts, IPs being scanned now | Scan → per-range list and action bar |
 | Pause/resume/stop | Scan buttons, kept outside the scrolling form |
 | Quality sorting, top-N, good/all filter, all result metrics/errors | Results; horizontal scroll or Details |
 | Selected/all IP copy, CSV/JSON export | Results |
 | Automatic/intermediate saving, history, logs | Output settings and Activity |
 | Every legacy CLI flag and TUI | Optional `Scaner-cli-<version>-windows-amd64.exe`; original root entry |
+
+**Scan targets.** *Range scan* builds the IP list from each CIDR: "IPs per
+range" random addresses per range (`0` = every address; the same value as
+Settings → IPs per subnet). *IP list* scans the entered addresses exactly as
+given — in order, with no sampling or shuffling. *Check connection* tests only
+the server address from the Connection tab and does not scan the ranges; the
+app warns and offers Proxy scan when ranges are entered. A single run is
+limited to 4,000,000 generated IPs.
+
+راهنمای کوتاه: در «Range scan» برنامه از هر رنج به تعداد «IPs per range» آی‌پی
+تصادفی می‌سازد (۰ = همه)، و در «IP list» دقیقاً همان آی‌پی‌های واردشده به همان
+ترتیب اسکن می‌شوند. «Check connection» فقط آدرس سرور را تست می‌کند، نه رنج‌ها را.
 
 Keyboard: **Tab / Shift+Tab**, standard entry copy/paste and arrows;
 **Ctrl+O** applies pasted connection, **Ctrl+S** saves, **Ctrl+R** starts/stops,

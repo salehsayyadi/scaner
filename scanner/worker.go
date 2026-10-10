@@ -27,6 +27,8 @@ type Worker struct {
 	debug     bool
 	debugOnce *sync.Once
 	paused    *atomic.Bool
+	// onActive, when set, is told when an IP starts (true) and finishes (false).
+	onActive func(ip string, active bool)
 }
 
 // NewWorker creates a new scanner worker
@@ -117,6 +119,10 @@ func (w *Worker) waitIfPaused() {
 
 func (w *Worker) processIP(ip string) {
 	defer w.processed.Add(1)
+	if w.onActive != nil {
+		w.onActive(ip, true)
+		defer w.onActive(ip, false)
+	}
 
 	select {
 	case <-w.ctx.Done():

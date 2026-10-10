@@ -28,6 +28,7 @@ type Scanner struct {
 	debug       bool
 	silent      bool
 	onProgress  func(done, total int)
+	onActive    func(ip string, active bool)
 	stopOnce    sync.Once
 	lifecycleMu sync.Mutex
 	paused      atomic.Bool
@@ -62,6 +63,10 @@ func (s *Scanner) SetOnResult(fn func(Result)) { s.results.SetOnAdd(fn) }
 
 // SetOnProgress streams progress (completed, total) updates.
 func (s *Scanner) SetOnProgress(fn func(done, total int)) { s.onProgress = fn }
+
+// SetOnActive reports each IP when a worker starts testing it (active=true) and
+// when that test ends (active=false). Used to show the IPs being scanned now.
+func (s *Scanner) SetOnActive(fn func(ip string, active bool)) { s.onActive = fn }
 
 // NewScanner creates a new scanner
 func NewScanner(cfg *config.Config) *Scanner {
@@ -223,6 +228,7 @@ func (s *Scanner) RunWithContext(parent context.Context) error {
 	for i := 0; i < threads; i++ {
 		wg.Add(1)
 		worker := NewWorker(i, s.cfg, s.results, &wg, jobs, s.quit, s.ctx, &processed, logger, s.debug, &debugOnce, &s.paused)
+		worker.onActive = s.onActive
 		worker.Start()
 	}
 

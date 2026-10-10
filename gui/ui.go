@@ -42,7 +42,9 @@ type UI struct {
 	Editor                                   *Editor
 	Tabs                                     *container.AppTabs
 	Source, ImportText                       *widget.Entry
-	Mode                                     *widget.Select
+	Mode, SourceKind                         *widget.Select
+	PerRange                                 *widget.Entry
+	SourceHelp, Breakdown, Current           *widget.Label
 	Start, Pause, Stop, Optimize, Apply      *widget.Button
 	Status, Summary, Preview, ConnectionInfo *widget.Label
 	Progress                                 *widget.ProgressBar
@@ -54,6 +56,7 @@ type UI struct {
 	History                                  *widget.List
 	connectionFields, settingsFields         *fyne.Container
 	run                                      *appcore.Run
+	lastRun                                  *appcore.Run
 	results                                  *scanner.ResultCollector
 	rows                                     []scanner.Result
 	selected                                 string
@@ -99,6 +102,24 @@ func New(a fyne.App, w fyne.Window, dataDir, version string, mobile bool) *UI {
 	u.Mode = widget.NewSelect([]string{appcore.ModeXray, appcore.ModeConnectivity, appcore.ModeCheck}, nil)
 	u.Mode.SetSelected(s.Mode)
 	u.Mode.OnChanged = func(v string) { u.Session.Mode = v; u.updatePreview(); u.autoSave() }
+	u.SourceKind = widget.NewSelect([]string{appcore.SourceRanges, appcore.SourceIPList}, nil)
+	u.SourceKind.SetSelected(s.Source)
+	u.SourceKind.OnChanged = func(v string) {
+		u.Session.Source = v
+		u.syncSourceControls()
+		u.updatePreview()
+		u.autoSave()
+	}
+	u.SourceHelp = wrapped("")
+	u.PerRange = widget.NewEntry()
+	u.PerRange.SetPlaceHolder("0 = every IP in the range")
+	u.PerRange.SetText(strconv.Itoa(s.Config.Scan.SampleSize))
+	u.PerRange.OnChanged = u.perRangeChanged
+	u.Breakdown = wrapped("")
+	// One line in the always-visible action bar; truncation keeps its height exact.
+	u.Current = widget.NewLabel("")
+	u.Current.Truncation = fyne.TextTruncateEllipsis
+	u.syncSourceControls()
 	u.Start = widget.NewButtonWithIcon("Start", theme.MediaPlayIcon(), u.start)
 	u.Start.Importance = widget.HighImportance
 	u.Pause = widget.NewButtonWithIcon("Pause", theme.MediaPauseIcon(), func() {
@@ -190,19 +211,27 @@ func (u *UI) scanTab() fyne.CanvasObject {
 	ranges := container.NewVBox(
 		heading("IP ranges"),
 		u.Source, u.Preview,
+		widget.NewLabelWithStyle("Per range · IPs in range · queued · tested · good", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+		u.Breakdown,
+		widget.NewSeparator(),
 		container.NewGridWithColumns(2, touchControl(preset), add),
 		container.NewGridWithColumns(2, importRanges, copyRanges),
 	)
-	setup := container.NewVBox(heading("Find the best route"),
+	targets := []fyne.CanvasObject{
+		widget.NewLabel("Targets"), touchControl(u.SourceKind), u.SourceHelp,
+		widget.NewLabel("IPs per range · 0 = all"), touchControl(u.PerRange),
+	}
+	setup := container.NewVBox(append([]fyne.CanvasObject{heading("Find the best route"),
 		wrapped("Test your proxy, one connection, or reachability without a proxy."),
-		widget.NewLabel("Scan mode"), touchControl(u.Mode), u.ConnectionInfo,
-		widget.NewButtonWithIcon("Scan settings", theme.SettingsIcon(), func() { u.Tabs.SelectIndex(2) }),
-		wrapped("No scan starts automatically. Only test targets you are allowed to probe."),
+		widget.NewLabel("Scan mode"), touchControl(u.Mode), u.ConnectionInfo},
+		append(targets,
+			widget.NewButtonWithIcon("Scan settings", theme.SettingsIcon(), func() { u.Tabs.SelectIndex(2) }),
+			wrapped("No scan starts automatically. Only test targets you are allowed to probe."))...)...,
 	)
 	var body fyne.CanvasObject
 	if u.Mobile {
-		body = container.NewVScroll(container.NewPadded(container.NewVBox(
-			widget.NewLabel("Scan mode"), touchControl(u.Mode), u.ConnectionInfo, ranges,
+		body = container.NewVScroll(container.NewPadded(container.NewVBox(append(append([]fyne.CanvasObject{
+			widget.NewLabel("Scan mode"), touchControl(u.Mode), u.ConnectionInfo}, targets...), ranges)...,
 		)))
 	} else {
 		split := container.NewHSplit(container.NewVScroll(container.NewPadded(setup)), container.NewVScroll(container.NewPadded(ranges)))
@@ -210,7 +239,7 @@ func (u *UI) scanTab() fyne.CanvasObject {
 		body = split
 	}
 	// Start/pause/stop and progress never disappear below a scrollable form.
-	actions := container.NewPadded(container.NewVBox(widget.NewSeparator(), u.Summary, u.Progress,
+	actions := container.NewPadded(container.NewVBox(widget.NewSeparator(), u.Summary, u.Current, u.Progress,
 		container.NewGridWithColumns(3, u.Start, u.Pause, u.Stop)))
 	return container.NewBorder(nil, actions, nil, nil, body)
 }
@@ -310,27 +339,188 @@ func (u *UI) updateConnectionInfo() {
 	u.ConnectionInfo.SetText(fmt.Sprintf("%s / %s · %s:%d", strings.ToUpper(c.Proxy.Method), strings.ToUpper(c.Proxy.Type), c.Proxy.Address, c.Proxy.Port))
 }
 
+// perRangeChanged keeps the Scan tab's "IPs per range" and the Settings field
+// (scan.sampleSize) in sync; both edit the same configuration value.
+func (u *UI) perRangeChanged(text string) {
+	n, err := strconv.Atoi(strings.TrimSpace(text))
+	if err != nil || n < 0 {
+		u.PerRange.SetValidationError(errors.New("enter 0 (all) or a positive number"))
+		return
+	}
+	u.PerRange.SetValidationError(nil)
+	if u.Session.Config.Scan.SampleSize == n {
+		return
+	}
+	u.Session.Config.Scan.SampleSize = n
+	if u.Editor != nil {
+		if c, ok := u.Editor.controls["scan.sampleSize"].(*widget.Entry); ok && c.Text != strconv.Itoa(n) {
+			c.SetText(strconv.Itoa(n))
+		}
+	}
+	u.updatePreview()
+	u.autoSave()
+}
+
+func (u *UI) syncSourceControls() {
+	if u.SourceKind == nil || u.PerRange == nil || u.SourceHelp == nil {
+		return
+	}
+	if u.SourceKind.Selected == appcore.SourceIPList {
+		u.PerRange.Disable()
+		u.SourceHelp.SetText("Scans the addresses exactly as entered, in order. Nothing is sampled or shuffled; a CIDR in the list is expanded to every address.")
+	} else {
+		u.PerRange.Enable()
+		u.SourceHelp.SetText("Generates the IPs from each CIDR range: the chosen number of random IPs per range (0 = every IP in the range), then scans them.")
+	}
+}
+
 func (u *UI) updatePreview() {
 	if u.Source == nil || u.Preview == nil {
 		return
 	}
-	n, valid := utils.CountRanges(u.Source.Text, u.Session.Config.Scan.SampleSize)
-	if max := u.Session.Config.Scan.MaxIPs; max > 0 && n > max {
-		n = max
+	cfg := u.Session.Config
+	if u.PerRange != nil && u.PerRange.Text != strconv.Itoa(cfg.Scan.SampleSize) {
+		if n, err := strconv.Atoi(strings.TrimSpace(u.PerRange.Text)); err != nil || n != cfg.Scan.SampleSize {
+			u.PerRange.SetText(strconv.Itoa(cfg.Scan.SampleSize))
+		}
 	}
-	s := fmt.Sprintf("%s queued IPs · %d worker(s)", comma(n), u.Session.Config.Scan.Threads)
-	if strings.TrimSpace(u.Source.Text) == "" {
+	ipList := u.Session.Source == appcore.SourceIPList
+	plan, total, invalid := utils.PlanRanges(u.Source.Text, cfg.Scan.SampleSize, ipList)
+	n := total
+	capped := false
+	if max := cfg.Scan.MaxIPs; max > 0 && n > uint64(max) {
+		n, capped = uint64(max), true
+	}
+	mode := ""
+	if u.Mode != nil {
+		mode = u.Mode.Selected
+	}
+	var s string
+	switch {
+	case mode == appcore.ModeCheck:
+		addr := cfg.Proxy.Address
+		if addr == "" {
+			addr = "(not set)"
+		}
+		s = "Check connection tests only the server address " + addr + " from the Connection tab. The IPs and ranges below are not scanned; choose Proxy scan to test them."
+	case strings.TrimSpace(u.Source.Text) == "":
 		s = "Add IPs / CIDRs, or choose a built-in preset."
-	} else if !valid {
-		s += " · invalid lines will be ignored."
-	}
-	if u.Mode != nil && u.Mode.Selected == appcore.ModeConnectivity {
-		s += " · ping mode: " + utils.PingModeString() + " (ICMP requires privileges)."
+	default:
+		s = fmt.Sprintf("%s IPs will be scanned from %d range(s) · %d worker(s)", commaU(n), len(plan), cfg.Scan.Threads)
+		if capped {
+			s += fmt.Sprintf(" · limited by Maximum IPs (%s)", comma(cfg.Scan.MaxIPs))
+		}
+		if total > utils.MaxGeneratedTargets {
+			s += fmt.Sprintf(" · more than %s IPs: set IPs per range or narrow the ranges", comma(utils.MaxGeneratedTargets))
+		}
+		if invalid > 0 {
+			s += fmt.Sprintf(" · %d invalid entr%s ignored", invalid, map[bool]string{true: "y", false: "ies"}[invalid == 1])
+		}
+		if !ipList && cfg.Scan.SampleSize > 0 {
+			s += fmt.Sprintf(" · %d IP(s) per range", cfg.Scan.SampleSize)
+		}
+		if mode == appcore.ModeConnectivity {
+			s += " · ping mode: " + utils.PingModeString() + " (ICMP requires privileges)."
+		}
 	}
 	u.Preview.SetText(s)
+	if u.Breakdown != nil && u.run == nil {
+		u.lastRun = nil
+		stats := make([]appcore.RangeStat, len(plan))
+		for i, r := range plan {
+			stats[i] = appcore.RangeStat{RangeInfo: r}
+		}
+		u.Breakdown.SetText(formatRanges(stats, false, 15))
+		if mode != appcore.ModeCheck {
+			u.Current.SetText("")
+		}
+	}
+}
+
+// formatRanges renders the per-range breakdown. live adds tested/good counts.
+func formatRanges(stats []appcore.RangeStat, live bool, limit int) string {
+	if len(stats) == 0 {
+		return "No ranges yet."
+	}
+	var b strings.Builder
+	for i, r := range stats {
+		if limit > 0 && i == limit {
+			fmt.Fprintf(&b, "+%d more range(s)", len(stats)-limit)
+			break
+		}
+		if i > 0 {
+			b.WriteString("\n")
+		}
+		hosts := "∞"
+		if r.Hosts != ^uint64(0) {
+			hosts = commaU(r.Hosts)
+		}
+		fmt.Fprintf(&b, "%s\n    %s IPs in range · %s queued", r.Label(), hosts, comma(r.Queued))
+		if live {
+			fmt.Fprintf(&b, " · %s tested · %s good", comma(r.Tested), comma(r.Good))
+		}
+	}
+	return b.String()
+}
+
+// refreshLive shows which IPs are being tested now and the per-range progress.
+func (u *UI) refreshLive(r *appcore.Run, running bool) {
+	if r == nil || u.Breakdown == nil {
+		return
+	}
+	maxActive := 3
+	if u.Mobile {
+		maxActive = 1
+	}
+	snap := r.Snapshot(maxActive)
+	u.Breakdown.SetText(formatRanges(snap.Ranges, true, 15))
+	if !running {
+		u.Current.SetText("")
+		return
+	}
+	var text string
+	switch {
+	case r.Paused():
+		text = "Paused"
+	case len(snap.Active) == 0:
+		text = "Preparing the scanner…"
+		done, total := r.Progress()
+		if total > 0 && done >= total {
+			text = "Finishing…"
+		}
+	default:
+		text = "Now scanning " + strings.Join(snap.Active, ", ")
+		if more := snap.ActiveTotal - len(snap.Active); more > 0 {
+			text += fmt.Sprintf(" +%d more", more)
+		}
+		if snap.CurrentRange != "" {
+			text += " · range " + snap.CurrentRange
+		}
+	}
+	u.Current.SetText(text)
 }
 
 func (u *UI) start() {
+	if u.run != nil {
+		return
+	}
+	if u.Mode.Selected == appcore.ModeCheck && strings.TrimSpace(u.Source.Text) != "" {
+		addr := u.Session.Config.Proxy.Address
+		msg := wrapped("Check connection tests only your server address (" + addr + ") from the Connection tab. It does not scan the IPs or ranges you entered.\n\nTo test those IPs through your proxy, use Proxy scan.")
+		dialog.NewCustomConfirm("Check connection", "Scan my IPs (Proxy scan)", "Check server only", msg, func(scanRanges bool) {
+			if scanRanges {
+				u.Mode.SetSelected(appcore.ModeXray)
+				u.startNow()
+				return
+			}
+			u.startNow()
+		}, u.Window).Show()
+		return
+	}
+	u.startNow()
+}
+
+func (u *UI) startNow() {
 	if u.run != nil {
 		return
 	}
@@ -340,12 +530,13 @@ func (u *UI) start() {
 		return
 	}
 	start := func() {
-		r, err := appcore.NewRun(u.ctx, cfg, u.Source.Text, u.Mode.Selected, u.Session.Debug)
+		r, err := appcore.NewRunWithSource(u.ctx, cfg, u.Source.Text, u.Mode.Selected, u.Session.Source, u.Session.Debug)
 		if err != nil {
 			u.showError(err)
 			return
 		}
 		u.run = r
+		u.lastRun = r
 		u.results = r.Results
 		u.selected = ""
 		u.runStamp = time.Now().Format("2006-01-02_150405.000")
@@ -361,6 +552,7 @@ func (u *UI) start() {
 		u.Progress.SetValue(0)
 		u.Status.SetText("Scanning… · you can edit settings for the next run.")
 		u.refreshResults()
+		u.refreshLive(r, true)
 		u.autoSave()
 		go func() {
 			err := r.Execute()
@@ -383,6 +575,7 @@ func (u *UI) start() {
 					u.Progress.SetValue(float64(done) / float64(total))
 				}
 				u.refreshResults()
+				u.refreshLive(r, false)
 				message := fmt.Sprintf("Done · %d good / %d tested", r.Results.SuccessCount(), r.Results.Count())
 				if errors.Is(err, context.Canceled) {
 					message = "Stopped · partial results saved."
@@ -400,12 +593,16 @@ func (u *UI) start() {
 			})
 		}()
 	}
-	n, _ := utils.CountRanges(u.Source.Text, cfg.Scan.SampleSize)
+	_, planned, _ := utils.PlanRanges(u.Source.Text, cfg.Scan.SampleSize, u.Session.Source == appcore.SourceIPList)
+	if planned > utils.MaxGeneratedTargets {
+		planned = utils.MaxGeneratedTargets
+	}
+	n := int(planned)
 	if cfg.Scan.MaxIPs > 0 && n > cfg.Scan.MaxIPs {
 		n = cfg.Scan.MaxIPs
 	}
 	if n > 250000 && u.Mode.Selected != appcore.ModeCheck {
-		dialog.NewConfirm("Large scan", fmt.Sprintf("This queues %s IPs and can use substantial memory and data. Continue, or reduce IPs per subnet / Maximum IPs in Settings?", comma(n)), func(ok bool) {
+		dialog.NewConfirm("Large scan", fmt.Sprintf("This queues %s IPs and can use substantial memory and data. Continue, or reduce IPs per range or Maximum IPs?", comma(n)), func(ok bool) {
 			if ok {
 				start()
 			}
@@ -511,6 +708,7 @@ func (u *UI) StartRefresh() {
 							u.Progress.SetValue(float64(done) / float64(total))
 						}
 						u.refreshResults()
+						u.refreshLive(r, true)
 						if r.Config.Output.SaveIntermediateResults && time.Since(u.lastSave) > 5*time.Second {
 							u.lastSave = time.Now()
 							stamp := u.runStamp
@@ -613,6 +811,13 @@ func touchControl(o fyne.CanvasObject) fyne.CanvasObject {
 	floor.SetMinSize(fyne.NewSize(0, 44))
 	return container.NewStack(floor, o)
 }
+func commaU(n uint64) string {
+	if n > uint64(^uint(0)>>1) {
+		return strconv.FormatUint(n, 10)
+	}
+	return comma(int(n))
+}
+
 func comma(n int) string {
 	s := strconv.Itoa(n)
 	for i := len(s) - 3; i > 0; i -= 3 {
