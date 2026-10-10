@@ -3,6 +3,10 @@ name: Native apps and automatic releases
 on:
   push:
     branches: [main]
+    # Release verification/Android completion of an existing tag must not
+    # reserve a new version or rebuild Windows.
+    paths-ignore:
+      - '.github/workflows/verify-and-android.yml'
   workflow_dispatch:
     inputs:
       version:
@@ -147,11 +151,17 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - uses: android-actions/setup-android@v3
+      # android-actions/setup-android@v3 tries to install the removed SDK
+      # package "tools" and fails; use the runner's preinstalled SDK instead.
       - name: Install pinned Android SDK and NDK
         run: |
-          sdkmanager "platforms;android-35" "build-tools;35.0.0" "ndk;27.2.12479018"
-          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.2.12479018" >> "$GITHUB_ENV"
+          SDK="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+          SDKM="$SDK/cmdline-tools/latest/bin/sdkmanager"
+          [ -x "$SDKM" ] || SDKM="$(ls "$SDK"/cmdline-tools/*/bin/sdkmanager | sort -V | tail -1)"
+          yes | "$SDKM" --licenses > /dev/null || true
+          "$SDKM" --install "platforms;android-35" "build-tools;35.0.0" "ndk;27.2.12479018" > /dev/null
+          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_HOME=$SDK/ndk/27.2.12479018" >> "$GITHUB_ENV"
       - name: Install pinned packaging tools
         run: |
           python -m pip install Pillow==11.3.0
