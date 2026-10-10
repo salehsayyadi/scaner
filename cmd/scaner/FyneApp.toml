@@ -2,5 +2,5 @@
 Icon = "../../build/icon.png"
 Name = "Scaner"
 ID = "com.piyazche.scaner"
-Version = "2.0.3"
-Build = 2000003
+Version = "2.0.4"
+Build = 2000004
