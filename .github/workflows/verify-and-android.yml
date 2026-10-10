@@ -228,14 +228,13 @@ jobs:
           set -euo pipefail
           V="${TAG#v}"
           test "$(tr -d '\r\n' < VERSION)" = "$V"
-          # v2.0.3 packaging fix only (no app code change): fyne resolves --icon
-          # relative to --src, so pass an absolute icon path.
-          sed -i 's#--icon build/icon.png#--icon "$PWD/build/icon.png"#' tools/build_android.sh
-          grep -q -- '--icon "$PWD/build/icon.png"' tools/build_android.sh
-          # fyne v2.6.3 rejects a comma list of Android targets; "android" builds
-          # one universal APK (arm64-v8a, armeabi-v7a, x86, x86_64).
-          sed -i 's#--os android/arm64,android/arm #--os android #' tools/build_android.sh
-          grep -q -- '--os android ' tools/build_android.sh
+          # Packaging-only fix for the v2.0.3 tag: use the corrected Android build
+          # script from main (icon path, universal target, no --src). App code is
+          # untouched; the diff is saved as evidence.
+          git fetch -q --depth=1 origin main
+          git show FETCH_HEAD:tools/build_android.sh > tools/build_android.sh
+          git diff -- tools/build_android.sh | tee evidence/build-script-overlay.diff
+          test "$(git status --porcelain | grep -v '^?? ' | awk '{print $2}')" = "tools/build_android.sh"
           mkdir -p evidence
           bash tools/build_android.sh 2>&1 | tee evidence/android-build.log
           APK="dist/Scaner-$V-android.apk"; T="$ANDROID_HOME/build-tools/35.0.0"
@@ -303,11 +302,14 @@ jobs:
           set -euo pipefail
           python -m pip install Pillow==11.3.0
           go install fyne.io/fyne/v2/cmd/fyne@v2.6.3 2>&1 | tee evidence/fyne-install.log
-          # v2.0.3 packaging fix only (no app code change): fyne resolves --icon
-          # relative to --src, so pass an absolute icon path.
-          sed -i 's#--icon build/icon.png#--icon "$PWD/build/icon.png"#' tools/build_android.sh
-          grep -q -- '--icon "$PWD/build/icon.png"' tools/build_android.sh
-          sed 's#--os android/arm64,android/arm#--os android/amd64#' tools/build_android.sh > tools/build_android_x86_64_test.sh
+          # Packaging-only fix for the v2.0.3 tag: use the corrected Android build
+          # script from main (icon path, universal target, no --src). App code is
+          # untouched; the diff is saved as evidence.
+          git fetch -q --depth=1 origin main
+          git show FETCH_HEAD:tools/build_android.sh > tools/build_android.sh
+          git diff -- tools/build_android.sh
+          test "$(git status --porcelain | grep -v '^?? ' | awk '{print $2}')" = "tools/build_android.sh"
+          sed 's#--os android #--os android/amd64 #' tools/build_android.sh > tools/build_android_x86_64_test.sh
           grep -q -- '--os android/amd64' tools/build_android_x86_64_test.sh
           bash tools/build_android_x86_64_test.sh 2>&1 | tee evidence/x86_64-build.log
           mv dist/Scaner-*-android.apk test-x86_64.apk
@@ -409,7 +411,7 @@ jobs:
             echo ""
             echo "## Android APK"
             echo "- **$APK**: one universal APK for ARM64 (arm64-v8a), 32-bit ARM (armeabi-v7a), x86 and x86_64 Android devices. No root required."
-            echo "- Built by GitHub Actions from tag $TAG (same application code as Scaner-$V-source.zip) with two packaging-only fixes in tools/build_android.sh: an absolute icon path and the fyne target \`--os android\`. These fixes are in main and in later releases."
+            echo "- Built by GitHub Actions from tag $TAG (same application code as Scaner-$V-source.zip) with packaging-only fixes to tools/build_android.sh (absolute icon path; universal \`--os android\` target run inside cmd/scaner). These fixes are in main and in later releases."
             if grep -q 'PUBLIC TEST KEY' ev/ANDROID-SIGNING.txt; then
               echo "- **Testing build signed with a public test key.** This is not a secure production signing identity."
             else
@@ -424,3 +426,28 @@ jobs:
             echo "- SHA256SUMS.txt now also lists the APK; the Windows checksums are unchanged."
           } >> notes.md
           gh release edit "$TAG" --notes-file notes.md
+
+  logs:
+    needs: [windows-smoke, android-build, android-emulator, android-attach]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      actions: read
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Save failed job logs to ci-evidence
+        shell: bash
+        run: |
+          D="verification/$TAG/run-$GITHUB_RUN_ID/failed-logs"
+          git clone -q --depth 1 -b ci-evidence "https://x-access-token:$GH_TOKEN@github.com/$GITHUB_REPOSITORY.git" evrepo
+          mkdir -p "evrepo/$D"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs" --jq '.jobs[] | "\(.id) \(.name) \(.conclusion)"' | tee "evrepo/$D/jobs.txt"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs" --jq '.jobs[] | select(.conclusion=="failure") | "\(.id) \(.name)"' |
+          while read -r id name; do gh api "repos/$GITHUB_REPOSITORY/actions/jobs/$id/logs" | grep -v 'Unzipping\|Downloading\|%' | tail -n 150 > "evrepo/$D/$name.txt" || true; done
+          cd evrepo
+          git config user.name "github-actions[bot]"; git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A; git commit -qm "ci: failed logs for $TAG [skip ci]" || exit 0
+          for i in 1 2 3 4 5; do git push -q origin HEAD:ci-evidence && break; sleep 3; git pull -q --rebase origin ci-evidence; done
