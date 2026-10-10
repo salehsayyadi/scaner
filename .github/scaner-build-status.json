@@ -1,5 +1,6 @@
 {
-  "state": "pending",
+  "state": "building",
   "version": "2.0.3",
-  "note": "No executable is claimed ready until the build and publication finish."
+  "run_url": "https://github.com/salehsayyadi/scaner/actions/runs/38048156410",
+  "source_sha": "08a3e19aa68a06c890b0b6332684f72dedf5c2de"
 }
