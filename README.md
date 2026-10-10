@@ -2,6 +2,128 @@
 
 A CDN IP scanner that tests connectivity through xray-core proxy or raw ICMP/TCP.
 
+## Scaner 2.0.3 — native graphical application
+
+The new **Scaner** desktop/mobile frontend uses the original Go/Xray engine.
+The complete CLI/TUI remains available. Every field in `config.Config` gets
+a native editable control; an automated test verifies that no field is omitted.
+
+### نصب در ویندوز — تک‌فایلی
+
+1. از [Releases همین مخزن](https://github.com/salehsayyadi/scaner/releases)
+   فایل **`Scaner-Setup-2.0.3.exe`** را دانلود و اجرا کن.
+2. برنامه برای کاربر فعلی نصب می‌شود؛ Go، Python، WebView2، فایل Xray یا
+   DLL جدا لازم نیست. میان‌بر Start و، در صورت انتخاب، دسکتاپ ساخته می‌شود.
+3. برنامه **Scaner** را باز کن. در **Connection** لینک `vless://` یا JSON را
+   وارد کن و **Apply connection** را بزن.
+4. در **Scan** رنج یا IP بده، یا preset اضافه کن. تمام تنظیمات در
+   **Settings** هستند. دکمه‌های **Start / Pause / Stop** همیشه در دسترس‌اند.
+5. برای به‌روزرسانی، Setup نسخه جدید را نصب کن؛ مسیر نصب و داده‌های کاربر
+   همان می‌مانند.
+
+**نسخه بدون نصب:** `Scaner-2.0.3-windows-amd64.exe` خود برنامه کامل است؛
+هیچ فایل config، فونت، IP، DLL یا Xray لازم نیست کنارش بگذاری. presetها و
+منابع گرافیکی داخل EXE جاسازی شده‌اند.
+
+**یک فایل برای نصب، نه صفر فایل هنگام کار:** تنظیمات، نتایج و لاگ خودکار
+در **`%APPDATA%\Scaner`** ذخیره می‌شوند، نه کنار فایل اجرایی. نصب‌کننده
+فایل‌های معمول حذف نصب را نیز مدیریت می‌کند.
+
+Desktop target: **Windows 10/11 x64**, with an OpenGL-compatible graphics driver.
+Binaries are not Authenticode-signed, so Windows may display an unknown-publisher
+warning. Verify the repository and `SHA256SUMS.txt`; do not disable security
+software to install the program.
+
+### Android — بدون روت
+
+- پس از موفقیت build اندروید، **`Scaner-2.0.3-android.apk`** در Release
+  قرار می‌گیرد. APK شامل خود برنامه و هسته است؛ Termux، Go یا روت لازم نیست.
+- APK برای **ARM64 و ARMv7** ساخته و امضا و معماری‌های آن در Actions بررسی
+  می‌شود. حداقل نسخه Android در خروجی بررسی APK ثبت می‌شود.
+- فایل را از همین مخزن دانلود کن و اجازه نصب را فقط برای برنامه‌ای بده که
+  APK را باز می‌کند. داده‌ها در فضای خصوصی برنامه نگه‌داری می‌شوند.
+- تست‌های پراکسی و TCP با گوشی معمولی اجرا می‌شوند. ICMP خام دسترسی ویژه
+  می‌خواهد؛ fallback اصلی برنامه به **TCP connect** استفاده می‌شود و حالت
+  واقعی در رابط نمایش داده می‌شود. TCP، پینگ ICMP واقعی نیست.
+- اسکنر VPN سیستمی نیست. هنگام اسکن، برنامه را در پیش‌زمینه نگه دار؛
+  Android ممکن است اجرای پس‌زمینه را محدود کند.
+- **Copy good IPs / Copy JSON** برای انتقال نتایج کار می‌کنند. فایل‌گزین
+  Android ممکن است محدود به فضای خصوصی برنامه باشد؛ کپی/پیست ورودی و
+  خروجی به مجوز storage نیاز ندارد.
+- بدون کلید اختصاصی، APK با **کلید عمومی تست و گواهی ثابت** امضا می‌شود:
+  مناسب نصب شخصی/تست، نه هویت امن تولیدی یا Google Play. فقط از همین مخزن
+  دانلود کن. گواهی ثابت اجازه نصب نسخه‌های بعدی این سری روی نسخه قبلی را
+  می‌دهد.
+- برای امضای اختصاصی این GitHub Actions Secrets را تنظیم کن:
+  `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`,
+  `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`.
+  کلید خصوصی را commit نکن. تغییر از امضای تست به امضای اختصاصی نیازمند
+  حذف نصب نسخه قبلی است؛ ابتدا کانفیگ و نتایج را پشتیبان بگیر.
+
+### Where every feature lives
+
+| Original capability | Graphical location |
+|---|---|
+| VLESS, app/Xray JSON, Base64, file import | Connection |
+| TLS/Reality, WS/XHTTP/gRPC/TCP/HTTP upgrade; every transport field | Connection; expandable sections |
+| Workers, timeout, retries, sampling, max IPs, shuffle | Settings → Scan & quality |
+| Warm ping, handshake, loss samples/filter, upload/download tests and thresholds | Settings → Scan & quality |
+| ICMP/TCP scan and single-connection check, including Reality | Scan → Scan mode |
+| Manual/auto/off fragment; packets, length, interval, ranges, thresholds, test IP | Settings → TLS fragmentation |
+| Independent, cancellable fragment optimizer | Settings → Optimize fragments |
+| Mux/concurrency/XUDP/log level | Settings → Xray & multiplexing |
+| Cloudflare, Cloudflare London, Fastly and custom ranges | Scan |
+| Pause/resume/stop | Scan buttons, kept outside the scrolling form |
+| Quality sorting, top-N, good/all filter, all result metrics/errors | Results; horizontal scroll or Details |
+| Selected/all IP copy, CSV/JSON export | Results |
+| Automatic/intermediate saving, history, logs | Output settings and Activity |
+| Every legacy CLI flag and TUI | Optional `Scaner-cli-<version>-windows-amd64.exe`; original root entry |
+
+Keyboard: **Tab / Shift+Tab**, standard entry copy/paste and arrows;
+**Ctrl+O** applies pasted connection, **Ctrl+S** saves, **Ctrl+R** starts/stops,
+**Ctrl+P** pauses/resumes, **Ctrl+Shift+C** copies the selected IP.
+
+### Build and automatic releases
+
+Go **1.25.6** and a platform C compiler are required to build the GUI, not to run
+the downloaded app. The original Xray dependency needs `-checklinkname=0`.
+
+```bash
+# Desktop GUI on the target platform (with graphics development libraries)
+go build -ldflags="-checklinkname=0 -X main.Version=$(cat VERSION)" -o Scaner ./cmd/scaner
+
+# Preserve the complete original CLI/TUI
+CGO_ENABLED=0 go build -ldflags="-checklinkname=0 -X main.Version=$(cat VERSION)" -o piyazche .
+
+# Engine and native-widget tests
+go test -tags ci -ldflags=-checklinkname=0 ./...
+python -m unittest discover -s tools -p 'test_*.py'
+```
+
+The exact Windows MinGW/Inno Setup 6 and Android SDK/NDK/Fyne build commands
+are in `.github/workflows/native-release.yml`. Android uses
+`bash tools/build_android.sh`. Pillow is an icon-build dependency only.
+
+- Initial native version: **2.0.3**. Each later published update automatically
+  increases the patch: **2.0.4**, **2.0.5**, etc.
+- Push to **main** to test, build the Windows GUI/installer, attempt Android,
+  and publish executable(s), a source ZIP, and SHA256 checksums in Releases.
+- Failed builds do not skip a reserved version. Tests and Windows installer
+  verification must succeed before publication. If Android fails, its APK is
+  explicitly marked unavailable; it does not block Windows publication.
+- For a major/minor version, use **Native apps and automatic releases → Run
+  workflow** and enter a newer version.
+- `.github/scaner-build-status.json` records the real result and run/release links.
+  Code committed to the repository is **not** proof a binary was built.
+- Actions must be enabled and allowed **contents: write**. Branch rules,
+  Actions policies and runner quota can block builds.
+- Repository visibility is preserved. Source/release downloads do not make
+  a private repository public.
+
+---
+
+## Original CLI / TUI
+
 ## What it does
 
 Scans a list of IPs (usually Cloudflare ranges) and finds the ones that work best for your specific proxy configuration. For every IP it measures:
@@ -17,7 +139,7 @@ It also ships with an **interactive TUI** (just run `piyazche` with no arguments
 
 ### Download pre-built binaries
 
-Download the latest release from the [Releases page](https://github.com/redhatx7/piyazche-scanner/releases).
+Download the latest release from the [Releases page](https://github.com/salehsayyadi/scaner/releases).
 
 Available platforms:
 - Linux (amd64, arm64)

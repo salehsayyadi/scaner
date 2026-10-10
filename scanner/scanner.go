@@ -18,18 +18,19 @@ import (
 
 // Scanner is the main scanner orchestrator
 type Scanner struct {
-	cfg        *config.Config
-	ips        []string
-	results    *ResultCollector
-	quit       chan struct{}
-	ctx        context.Context
-	cancel     context.CancelFunc
-	startTime  time.Time
-	debug      bool
-	silent     bool
-	onProgress func(done, total int)
-	stopOnce   sync.Once
-	paused     atomic.Bool
+	cfg         *config.Config
+	ips         []string
+	results     *ResultCollector
+	quit        chan struct{}
+	ctx         context.Context
+	cancel      context.CancelFunc
+	startTime   time.Time
+	debug       bool
+	silent      bool
+	onProgress  func(done, total int)
+	stopOnce    sync.Once
+	lifecycleMu sync.Mutex
+	paused      atomic.Bool
 }
 
 // SetPaused pauses or resumes the scan (workers finish their in-flight IP, then
@@ -139,6 +140,19 @@ func (s *Scanner) warmup() {
 
 // Run starts the scanning process
 func (s *Scanner) Run() error {
+	s.paused.Store(false)
+	return s.RunWithContext(context.Background())
+}
+
+// RunWithContext lets native/mobile callers cancel warm-up and workers without
+// racing Stop against initialization. Run keeps its original CLI semantics.
+func (s *Scanner) RunWithContext(parent context.Context) error {
+	if parent == nil {
+		parent = context.Background()
+	}
+	if err := parent.Err(); err != nil {
+		return err
+	}
 	if len(s.ips) == 0 {
 		return fmt.Errorf("no IPs loaded")
 	}
@@ -146,10 +160,11 @@ func (s *Scanner) Run() error {
 	s.startTime = time.Now()
 	// Make the scanner reusable: a prior Stop() cancelled the context and closed
 	// quit, so recreate them (otherwise a second Run() would exit instantly).
-	s.ctx, s.cancel = context.WithCancel(context.Background())
+	s.lifecycleMu.Lock()
+	s.ctx, s.cancel = context.WithCancel(parent)
 	s.quit = make(chan struct{})
 	s.stopOnce = sync.Once{}
-	s.paused.Store(false) // always begin unpaused, even if a prior run was paused
+	s.lifecycleMu.Unlock()
 	threads := s.cfg.Scan.Threads
 	if threads <= 0 {
 		threads = 16
@@ -240,6 +255,9 @@ func (s *Scanner) Run() error {
 	go func() {
 		for _, ip := range s.ips {
 			select {
+			case <-s.ctx.Done():
+				close(jobs)
+				return
 			case <-s.quit:
 				close(jobs)
 				return
@@ -258,19 +276,21 @@ func (s *Scanner) Run() error {
 
 	if s.silent {
 		if s.onProgress != nil {
-			s.onProgress(total, total)
+			s.onProgress(int(processed.Load()), total)
 		}
-		return nil
+		return parent.Err()
 	}
 
 	bar.Finish()
 	s.printSummary()
 
-	return nil
+	return parent.Err()
 }
 
 // Stop gracefully stops the scanner. Safe to call multiple times.
 func (s *Scanner) Stop() {
+	s.lifecycleMu.Lock()
+	defer s.lifecycleMu.Unlock()
 	s.stopOnce.Do(func() {
 		s.paused.Store(false) // release any paused workers so they can observe the stop
 		s.cancel()

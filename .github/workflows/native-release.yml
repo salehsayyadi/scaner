@@ -1,0 +1,282 @@
+name: Native apps and automatic releases
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Optional new version, e.g. 2.1.0; otherwise increment automatically"
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: scaner-native-release
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      version_code: ${{ steps.version.outputs.version_code }}
+      sha: ${{ steps.sha.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Reserve next version
+        id: version
+        env:
+          REQUESTED_VERSION: ${{ inputs.version }}
+        run: python tools/prepare_release.py
+      - name: Save build metadata without recursively triggering another release
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add VERSION cmd/scaner/FyneApp.toml packaging/windows/app.manifest .github/scaner-build-status.json
+          if ! git diff --cached --quiet; then
+            git commit -m "chore(release): prepare v${{ steps.version.outputs.version }} [skip ci]"
+            git push origin HEAD:main
+          fi
+      - id: sha
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+  tests:
+    needs: prepare
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.6'
+      - name: Original engine, native controls, persistence and cancellation tests
+        run: go test -tags ci -ldflags=-checklinkname=0 ./...
+      - name: Version automation tests
+        run: python -m unittest discover -s tools -p 'test_*.py'
+      - name: Check rootless Android engine compatibility
+        env:
+          GOOS: android
+          GOARCH: arm64
+          CGO_ENABLED: '0'
+        run: go build -ldflags=-checklinkname=0 ./appcore
+
+  windows:
+    needs: prepare
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.6'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install Pillow==11.3.0
+      - run: python tools/make_icon.py
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: false
+          path-type: inherit
+          install: mingw-w64-x86_64-gcc
+      - name: Build a self-contained native GUI and preserve the legacy CLI
+        shell: msys2 {0}
+        env:
+          CGO_ENABLED: '1'
+          CC: gcc
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          mkdir -p dist
+          go run github.com/akavel/rsrc@v0.10.2 -ico build/icon.ico -manifest packaging/windows/app.manifest -o cmd/scaner/rsrc_windows_amd64.syso
+          go build -trimpath -ldflags="-H=windowsgui -s -w -checklinkname=0 -extldflags=-static -X main.Version=$VERSION" -o "dist/Scaner-$VERSION-windows-amd64.exe" ./cmd/scaner
+          CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -checklinkname=0 -X main.Version=$VERSION" -o "dist/Scaner-cli-$VERSION-windows-amd64.exe" .
+          objdump -p "dist/Scaner-$VERSION-windows-amd64.exe" | grep 'DLL Name:' | tee build/windows-imports.txt
+          if grep -Ei 'libgcc|libstdc|libwinpthread|msys-' build/windows-imports.txt; then
+            echo "Unexpected non-system DLL dependency"; exit 1
+          fi
+      - name: Build the single-file Windows installer
+        shell: pwsh
+        run: |
+          $compiler = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (!(Test-Path $compiler)) {
+            choco install innosetup --no-progress -y
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+          & $compiler "/DAppVersion=${{ needs.prepare.outputs.version }}" packaging/windows/installer.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Verify installation contains the exact standalone program
+        shell: pwsh
+        run: |
+          $version = "${{ needs.prepare.outputs.version }}"
+          $dir = Join-Path $env:RUNNER_TEMP "scaner-install-check"
+          $setup = Resolve-Path "dist/Scaner-Setup-$version.exe"
+          $p = Start-Process $setup -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/DIR=$dir" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "Installer returned $($p.ExitCode)" }
+          $installed = Get-FileHash (Join-Path $dir "Scaner.exe")
+          $standalone = Get-FileHash "dist/Scaner-$version-windows-amd64.exe"
+          if ($installed.Hash -ne $standalone.Hash) { throw "Installed program differs from the standalone executable" }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: scaner-windows
+          path: dist/*.exe
+          if-no-files-found: error
+
+  android:
+    needs: [prepare, publish]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.6'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: android-actions/setup-android@v3
+      - name: Install pinned Android SDK and NDK
+        run: |
+          sdkmanager "platforms;android-35" "build-tools;35.0.0" "ndk;27.2.12479018"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.2.12479018" >> "$GITHUB_ENV"
+      - name: Install pinned packaging tools
+        run: |
+          python -m pip install Pillow==11.3.0
+          go install fyne.io/fyne/v2/cmd/fyne@v2.6.3
+      - name: Build and verify installable ARM64 and ARMv7 APK
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+          VERSION_CODE: ${{ needs.prepare.outputs.version_code }}
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: bash tools/build_android.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: scaner-android
+          path: |
+            dist/*.apk
+            dist/ANDROID-SIGNING.txt
+          if-no-files-found: error
+
+
+      - name: Attach Android only after Windows has been published
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          gh release upload "v$VERSION" dist/*.apk dist/ANDROID-SIGNING.txt --clobber
+          gh release view "v$VERSION" --json body --jq .body > android-release-notes.md
+          printf '\n## Android APK now available\n- ARM64 / ARMv7; no root required. ICMP falls back to TCP on an ordinary phone.\n' >> android-release-notes.md
+          cat dist/ANDROID-SIGNING.txt >> android-release-notes.md
+          gh release edit "v$VERSION" --notes-file android-release-notes.md
+
+  publish:
+    needs: [prepare, tests, windows]
+    if: ${{ always() && needs.tests.result == 'success' && needs.windows.result == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: scaner-*
+          path: dist
+          merge-multiple: true
+      - name: Source archive, checksums and release notes
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+          ANDROID_RESULT: pending
+        run: |
+          git archive --format=zip --prefix="scaner-$VERSION/" --output="dist/Scaner-$VERSION-source.zip" HEAD
+          cat > release-notes.md <<EOF
+          ## Scaner $VERSION
+          - Windows: download **Scaner-Setup-$VERSION.exe** for installation, or the standalone GUI executable for portable use.
+          - The GUI embeds the original Go/Xray engine, assets and range presets. No sidecar DLL, config file or separate Xray executable is required.
+          - Legacy CLI/TUI retained as a separate optional executable; full source and SHA256 checksums are included.
+          - Settings and results are saved in the user application-data directory, not beside the executable.
+          - Windows binaries are not Authenticode-signed. Confirm the repository and checksum before installing.
+          EOF
+          if [ "$ANDROID_RESULT" = success ]; then
+            echo "- Android: an installable ARM64/ARMv7 APK is included; no root required. Raw ICMP falls back to TCP on an ordinary phone." >> release-notes.md
+            cat dist/ANDROID-SIGNING.txt >> release-notes.md
+          else
+            echo "- Android build starts after Windows publication; its APK is not yet available. See Actions for progress." >> release-notes.md
+          fi
+          (cd dist && sha256sum * > SHA256SUMS.txt)
+      - name: Publish only tested artifacts
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          gh release create "v$VERSION" dist/* \
+            --target "${{ needs.prepare.outputs.sha }}" \
+            --title "Scaner $VERSION" --notes-file release-notes.md
+
+  status:
+    needs: [prepare, tests, windows, android, publish]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Save verifiable build and release status
+        uses: actions/github-script@v7
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+          SOURCE_SHA: ${{ needs.prepare.outputs.sha }}
+          PREPARE_RESULT: ${{ needs.prepare.result }}
+          TEST_RESULT: ${{ needs.tests.result }}
+          WINDOWS_RESULT: ${{ needs.windows.result }}
+          ANDROID_RESULT: ${{ needs.android.result }}
+          PUBLISH_RESULT: ${{ needs.publish.result }}
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const serverUrl = process.env.GITHUB_SERVER_URL || 'https://github.com';
+            const ready = process.env.PUBLISH_RESULT === 'success';
+            const data = {
+              state: ready ? (process.env.ANDROID_RESULT === 'success' ? 'ready' : 'ready_windows_only') : 'failed',
+              version: process.env.VERSION, source_sha: process.env.SOURCE_SHA,
+              prepare: process.env.PREPARE_RESULT, tests: process.env.TEST_RESULT,
+              windows: process.env.WINDOWS_RESULT, android: process.env.ANDROID_RESULT,
+              publish: process.env.PUBLISH_RESULT,
+              run_url: `${serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`,
+              release_url: ready ? `${serverUrl}/${owner}/${repo}/releases/tag/v${process.env.VERSION}` : null,
+              failed_jobs: []
+            };
+            const jobs = await github.rest.actions.listJobsForWorkflowRun({owner, repo, run_id: context.runId, per_page:100});
+            for (const j of jobs.data.jobs.filter(j => j.conclusion === 'failure')) {
+              const item = {name:j.name, url:j.html_url, steps:j.steps.filter(s => s.conclusion === 'failure').map(s => s.name)};
+              try {
+                const logs = await github.rest.actions.downloadJobLogsForWorkflowRun({owner,repo,job_id:j.id});
+                if (typeof logs.data === 'string') item.log_tail = logs.data.split('\n').slice(-70).join('\n').slice(-12000);
+              } catch (e) { item.log_note = 'See the job URL for the full log.'; }
+              data.failed_jobs.push(item);
+            }
+            const path = '.github/scaner-build-status.json';
+            let sha;
+            try { sha = (await github.rest.repos.getContent({owner,repo,path,ref:'main'})).data.sha; }
+            catch(e) { if(e.status!==404) throw e; }
+            await github.rest.repos.createOrUpdateFileContents({
+              owner,repo,path,branch:'main',sha,
+              message:`chore: record Scaner build status [skip ci]`,
+              content:Buffer.from(JSON.stringify(data,null,2)+'\n').toString('base64')
+            });

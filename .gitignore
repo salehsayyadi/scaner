@@ -43,3 +43,13 @@ tui_err.txt
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# Native build intermediates, never application runtime dependencies
+/build/
+/dist/
+/cmd/scaner/*.syso
+/cmd/scaner/AndroidManifest.xml
+__pycache__/
+*.apk
+*.keystore
+*.jks

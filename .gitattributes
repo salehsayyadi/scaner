@@ -1,0 +1,9 @@
+# Keep user sessions, old binaries and local scan data out of source downloads.
+config.json export-ignore
+ranges.txt export-ignore
+piyazche.exe export-ignore
+piyazche.log export-ignore
+results export-ignore
+.claude export-ignore
+.archive-workflows export-ignore
+.github/scaner-build-status.json export-ignore
