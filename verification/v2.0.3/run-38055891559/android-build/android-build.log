@@ -1,0 +1,4 @@
+NOTE: This tool is deprecated and has migrated to fyne.io/tools/cmd/fyne.
+The new tool can be installed by running the following command:
+	go install fyne.io/tools/cmd/fyne@latest
+parameter -sourceDir is currently not supported for mobile builds. Change directory to the main package and try again
