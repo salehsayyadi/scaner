@@ -157,7 +157,7 @@ jobs:
           $s = Start-Process "rel\Scaner-Setup-$v.exe" -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/TASKS=desktopicon' -Wait -PassThru
           if ($s.ExitCode -ne 0) { throw "Setup exit $($s.ExitCode)" }
           $app = Join-Path $env:LOCALAPPDATA 'Programs\Scaner'
-          $lnkStart = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\Scaner.lnk'
+          $lnkStart = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\Scaner\Scaner.lnk'
           $lnkDesk = Join-Path ([Environment]::GetFolderPath('Desktop')) 'Scaner.lnk'
           Log ("installed files: $((Get-ChildItem $app).Name -join ', ')")
           Log ("start menu shortcut: $(Test-Path $lnkStart); desktop shortcut: $(Test-Path $lnkDesk)")
@@ -190,7 +190,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-      - run: mkdir -p evidence
       - uses: actions/checkout@v4
         with:
           ref: ${{ env.TAG }}
@@ -206,6 +205,7 @@ jobs:
           python-version: '3.12'
       - name: Use the runner's Android SDK and install the pinned packages
         run: |
+          mkdir -p evidence
           SDK="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
           SDKM="$SDK/cmdline-tools/latest/bin/sdkmanager"
           [ -x "$SDKM" ] || SDKM="$(ls "$SDK"/cmdline-tools/*/bin/sdkmanager | sort -V | tail -1)"
@@ -266,7 +266,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 50
     steps:
-      - run: mkdir -p evidence
       - uses: actions/checkout@v4
         with:
           ref: ${{ env.TAG }}
@@ -282,6 +281,7 @@ jobs:
           python-version: '3.12'
       - name: Use the runner's Android SDK and install the pinned packages
         run: |
+          mkdir -p evidence
           SDK="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
           SDKM="$SDK/cmdline-tools/latest/bin/sdkmanager"
           [ -x "$SDKM" ] || SDKM="$(ls "$SDK"/cmdline-tools/*/bin/sdkmanager | sort -V | tail -1)"
