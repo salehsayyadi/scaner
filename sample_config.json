@@ -1,0 +1,85 @@
+{
+  "proxy": {
+    "uuid": "UUID",
+    "address": "your config address domain | ip",
+    "port": 443,
+    "type": "ws",
+    "alpn": [
+      "http/1.1",
+      "h2"
+    ],
+    "fingerprint": "chrome",
+    "tls": {
+      "sni": "The SNI which will be fed to CDN",
+      "alpn": [
+        "http/1.1",
+        "h2"
+      ],
+      "fingerprint": "chrome"
+    },
+    "ws": {
+      "host": "host",
+      "path": "path"
+    }
+  },
+  "fragment": {
+    "enabled": true,
+    "mode": "manual",
+    "packets": "tlshello | 1-3 | 1-5",
+    "manual": {
+      "length": "15-25",
+      "interval": "5-10"
+    },
+    "auto": {
+      "lengthRange": {
+        "min": 20,
+        "max": 40
+      },
+      "intervalRange": {
+        "min": 6,
+        "max": 18
+      },
+      "maxTests": 10,
+      "successThreshold": 0.6,
+      "testIP": "test ip to find optimal fragment"
+    }
+  },
+  "scan": {
+    "threads": 8,
+    "timeout": 4,
+    "testUrl": "https://www.gstatic.com/generate_204",
+    "maxLatency": 3500,
+    "retries": 3,
+    "sampleSize": 254,
+
+    "realisticPing": true,
+    "handshakeTest": true,
+    "pingSamples": 8,
+    "lossTest": true,
+    "maxLoss": 0,
+
+    "uploadTest": false,
+    "uploadUrl": "https://speed.cloudflare.com/__up",
+    "uploadBytes": 262144,
+    "minUpload": 0,
+
+    "downloadTest": false,
+    "downloadUrl": "https://speed.cloudflare.com/__down",
+    "downloadBytes": 1048576,
+    "minDownload": 0
+  },
+  "output": {
+    "format": "csv",
+    "directory": "results",
+    "saveIntermediateResults": true
+  },
+  "xray": {
+    "logLevel": "none",
+    "mux": {
+      "enabled": false,
+      "concurrency": 8,
+      "xudpConcurrency": 4,
+      "xudpProxyUDP443": "reject"
+    }
+  }
+}

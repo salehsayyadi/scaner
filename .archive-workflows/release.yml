@@ -1,0 +1,83 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+            output: piyazche-linux-amd64
+          - goos: linux
+            goarch: arm64
+            output: piyazche-linux-arm64
+          - goos: windows
+            goarch: amd64
+            output: piyazche-windows-amd64.exe
+          - goos: darwin
+            goarch: amd64
+            output: piyazche-darwin-amd64
+          - goos: darwin
+            goarch: arm64
+            output: piyazche-darwin-arm64
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.6'
+
+      - name: Get version from tag
+        id: get_version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      - name: Build binary
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: 0
+        run: |
+          go build -ldflags="-s -w -checklinkname=0 -X main.Version=${{ steps.get_version.outputs.VERSION }} -X main.BuildTime=$(date -u '+%Y-%m-%d_%H:%M:%S')" -o ${{ matrix.output }} .
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.output }}
+          path: ${{ matrix.output }}
+
+  create-release:
+    needs: build-and-release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4.1.3
+        with:
+          path: artifacts
+
+      - name: Prepare release files
+        run: |
+          mkdir -p release
+          find artifacts -type f -exec cp {} release/ \;
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/*
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

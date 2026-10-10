@@ -1,0 +1,2 @@
+IP,Ping (ms),Handshake (ms),Jitter (ms),Loss (%),Upload (Mbps),Download (Mbps),Status,Tested At
+89.116.180.12,81,2481,3,33.3,1.51,0.00,success,2026-06-16T19:01:46+03:30

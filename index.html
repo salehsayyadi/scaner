@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="fa">
+<head>
+<meta charset="UTF-8">
+<title>بازی حدس عدد</title>
+<style>
+  body {font-family: sans-serif; text-align: center; margin-top: 50px;}
+  #message {margin-top: 20px; font-size: 1.2em;}
+</style>
+</head>
+<body>
+<h1>بازی حدس عدد</h1>
+<p>عدد مخفی بین ۱ تا ۱۰۰ را حدس بزنید.</p>
+<input type="number" id="guess" min="1" max="100" placeholder="عدد خود را وارد کنید" />
+<button id="btn">حدس بزن</button>
+<div id="message"></div>
+<script>
+  const hidden = Math.floor(Math.random()*100)+1;
+  const btn = document.getElementById('btn');
+  const guessInput = document.getElementById('guess');
+  const message = document.getElementById('message');
+  btn.addEventListener('click',()=>{
+    const guess = parseInt(guessInput.value,10);
+    if(isNaN(guess)) {message.textContent='لطفاً عدد معتبر وارد کنید.';return;}
+    if(guess===hidden){message.textContent='🎉 تبریک! عدد درست است.';}
+    else if(guess<hidden){message.textContent='عدد بزرگتر است.';}
+    else {message.textContent='عدد کوچکتر است.';}
+  });
+</script>
+</body>
+</html>
