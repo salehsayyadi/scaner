@@ -1,0 +1,5 @@
+total 92253
+-rw-r--r-- 1 runneradmin 197121      377 Oct 10 13:36 SHA256SUMS.txt
+-rwxr-xr-x 1 runneradmin 197121 46201856 Oct 10 13:36 Scaner-2.0.3-windows-amd64.exe
+-rwxr-xr-x 1 runneradmin 197121 16287846 Oct 10 13:36 Scaner-Setup-2.0.3.exe
+-rwxr-xr-x 1 runneradmin 197121 31970304 Oct 10 13:36 Scaner-cli-2.0.3-windows-amd64.exe
