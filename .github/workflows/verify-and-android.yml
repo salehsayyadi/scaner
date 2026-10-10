@@ -1,0 +1,385 @@
+name: Verify release and attach Android
+
+# Verifies an already published release and attaches the Android APK built from
+# the exact same tag. It never rebuilds or replaces the published Windows files.
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/verify-and-android.yml']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to verify and complete
+        required: false
+        default: v2.0.3
+
+permissions:
+  contents: write
+
+concurrency:
+  group: scaner-verify-android
+  cancel-in-progress: false
+
+env:
+  TAG: ${{ inputs.tag || 'v2.0.3' }}
+
+jobs:
+  windows-smoke:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Download the published Windows files and verify checksums
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p rel evidence
+          gh release download "$TAG" -R "$GITHUB_REPOSITORY" -D rel -p '*.exe' -p 'SHA256SUMS.txt'
+          ls -l rel | tee evidence/win-assets.txt
+          (cd rel && sha256sum -c --ignore-missing SHA256SUMS.txt) | tee evidence/win-checksums.txt
+      - name: Inspect PE imports, manifest and icon of the published GUI
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --quiet pefile==2024.8.26
+          V="${TAG#v}"
+          python - "rel/Scaner-$V-windows-amd64.exe" > evidence/win-pe.txt <<'PY'
+          import sys, pefile
+          pe = pefile.PE(sys.argv[1])
+          print("machine", hex(pe.FILE_HEADER.Machine), "subsystem", pe.OPTIONAL_HEADER.Subsystem)
+          dlls = sorted(e.dll.decode() for e in pe.DIRECTORY_ENTRY_IMPORT)
+          print("imports", dlls)
+          system = {"kernel32.dll","user32.dll","gdi32.dll","opengl32.dll","shell32.dll","ole32.dll","advapi32.dll","winmm.dll","ws2_32.dll","imm32.dll","dwmapi.dll","comdlg32.dll","msvcrt.dll","ntdll.dll","oleaut32.dll","uxtheme.dll","shlwapi.dll","bcrypt.dll","crypt32.dll","iphlpapi.dll","dnsapi.dll","userenv.dll","winhttp.dll","secur32.dll","netapi32.dll","powrprof.dll","mswsock.dll","setupapi.dll","version.dll","comctl32.dll"}
+          extra = [d for d in dlls if d.lower() not in system and not d.lower().startswith("api-ms-win-")]
+          print("non_system_imports", extra)
+          types = {e.id: e for e in pe.DIRECTORY_ENTRY_RESOURCE.entries}
+          print("has_icon_group", 14 in types, "has_manifest", 24 in types)
+          if 24 in types:
+              ent = types[24].directory.entries[0].directory.entries[0].data.struct
+              print(pe.get_data(ent.OffsetToData, ent.Size).decode("utf-8", "replace"))
+          bad = [d for d in dlls if any(k in d.lower() for k in ("libgcc", "libstdc", "libwinpthread", "msys-", "mingw", "glfw", "zlib"))]
+          print("forbidden_imports", bad)
+          sys.exit(1 if bad or 14 not in types or 24 not in types or pe.OPTIONAL_HEADER.Subsystem != 2 else 0)
+          PY
+          cat evidence/win-pe.txt
+      - name: Get a software OpenGL driver for this GPU-less CI machine (test only)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download -R pal1000/mesa-dist-win -p '*-release-msvc.7z' -D mesa
+          7z x -omesa/x mesa/*.7z > /dev/null
+          ls mesa/x/x64 | tee evidence/mesa-files.txt
+      - name: Standalone and installed GUI smoke test
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $v = $env:TAG.TrimStart('v')
+          $ev = Resolve-Path evidence
+          $env:GALLIUM_DRIVER = 'llvmpipe'
+          Add-Type -AssemblyName System.Windows.Forms,System.Drawing
+          Add-Type @'
+          using System; using System.Runtime.InteropServices;
+          public static class W {
+            [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
+            [DllImport("user32.dll")] public static extern bool MoveWindow(IntPtr h,int x,int y,int w,int ht,bool r);
+            [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h,int c);
+          }
+          '@
+          function Shot($name) {
+            $b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+            $bmp = New-Object System.Drawing.Bitmap $b.Width, $b.Height
+            $g = [System.Drawing.Graphics]::FromImage($bmp)
+            $g.CopyFromScreen($b.Location, [System.Drawing.Point]::Empty, $b.Size)
+            $bmp.Save((Join-Path $ev $name), [System.Drawing.Imaging.ImageFormat]::Png); $g.Dispose(); $bmp.Dispose()
+          }
+          function Log($m) { $m | Out-File -Append -Encoding utf8 (Join-Path $ev 'win-smoke.txt'); Write-Host $m }
+          function AddMesa($dir) { Copy-Item mesa\x\x64\*.dll $dir }
+          function Launch($exe, $tag) {
+            $p = Start-Process $exe -PassThru
+            for ($i = 0; $i -lt 40 -and $p.MainWindowHandle -eq 0 -and -not $p.HasExited; $i++) { Start-Sleep 1; $p.Refresh() }
+            Start-Sleep 8; $p.Refresh()
+            if ($p.HasExited) { throw "$tag exited early with code $($p.ExitCode)" }
+            if ($p.MainWindowHandle -eq 0) { throw "$tag has no main window" }
+            Log ("$tag running: pid=$($p.Id) title='$($p.MainWindowTitle)'")
+            return $p
+          }
+          $data = Join-Path $env:APPDATA 'Scaner'
+          Remove-Item $data -Recurse -Force -ErrorAction SilentlyContinue
+
+          # 1. Standalone EXE, copied alone into an empty folder (plus Mesa for CI only).
+          $port = Join-Path $env:RUNNER_TEMP 'portable'; New-Item -ItemType Directory $port | Out-Null
+          Copy-Item "rel\Scaner-$v-windows-amd64.exe" (Join-Path $port 'Scaner.exe'); AddMesa $port
+          $p = Launch (Join-Path $port 'Scaner.exe') 'standalone'
+          [W]::ShowWindow($p.MainWindowHandle, 3) | Out-Null; Start-Sleep 3; Shot 'win-standalone-maximized.png'
+          [W]::SetForegroundWindow($p.MainWindowHandle) | Out-Null; Start-Sleep 1
+          try { [System.Windows.Forms.SendKeys]::SendWait('^s'); Log 'sent Ctrl+S' } catch { Log "SendKeys failed: $_" }
+          Start-Sleep 3
+          [W]::ShowWindow($p.MainWindowHandle, 1) | Out-Null
+          [W]::MoveWindow($p.MainWindowHandle, 0, 0, 640, 480, $true) | Out-Null; Start-Sleep 3; Shot 'win-standalone-640x480.png'
+          $p.CloseMainWindow() | Out-Null
+          if (-not $p.WaitForExit(15000)) { $p.Kill(); Log 'standalone did not close within 15s; killed' }
+          else { Log "standalone closed normally, exit=$($p.ExitCode)" }
+          Log 'APPDATA files after Ctrl+S and close:'
+          if (Test-Path $data) { Log (Get-ChildItem $data -Recurse | Select-Object FullName, Length | Format-Table -AutoSize | Out-String) }
+          else { Log 'NO DATA DIRECTORY CREATED' }
+          $p = Launch (Join-Path $port 'Scaner.exe') 'standalone-relaunch'; Shot 'win-standalone-relaunch.png'; $p.Kill()
+
+          # 2. Installer with default per-user directory and desktop shortcut.
+          $s = Start-Process "rel\Scaner-Setup-$v.exe" -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/TASKS=desktopicon' -Wait -PassThru
+          if ($s.ExitCode -ne 0) { throw "Setup exit $($s.ExitCode)" }
+          $app = Join-Path $env:LOCALAPPDATA 'Programs\Scaner'
+          $lnkStart = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\Scaner.lnk'
+          $lnkDesk = Join-Path ([Environment]::GetFolderPath('Desktop')) 'Scaner.lnk'
+          Log ("installed files: $((Get-ChildItem $app).Name -join ', ')")
+          Log ("start menu shortcut: $(Test-Path $lnkStart); desktop shortcut: $(Test-Path $lnkDesk)")
+          if (-not (Test-Path $lnkStart) -or -not (Test-Path $lnkDesk)) { throw 'shortcut missing' }
+          if ((Get-FileHash "$app\Scaner.exe").Hash -ne (Get-FileHash "rel\Scaner-$v-windows-amd64.exe").Hash) { throw 'installed exe differs' }
+          AddMesa $app
+          $p = Launch "$app\Scaner.exe" 'installed'; Shot 'win-installed.png'; $p.Kill(); Start-Sleep 2
+          Get-ChildItem $app -Filter *.dll | Remove-Item
+          $u = Start-Process "$app\unins000.exe" -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -Wait -PassThru
+          Start-Sleep 5
+          Log ("uninstall exit=$($u.ExitCode); exe still present: $(Test-Path "$app\Scaner.exe"); start shortcut present: $(Test-Path $lnkStart); user data kept: $(Test-Path $data)")
+          if (Test-Path "$app\Scaner.exe") { throw 'uninstall left the program' }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: evidence-windows
+          path: evidence/
+
+  android-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.6'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Use the runner's Android SDK and install the pinned packages
+        run: |
+          SDK="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+          SDKM="$SDK/cmdline-tools/latest/bin/sdkmanager"
+          [ -x "$SDKM" ] || SDKM="$(ls "$SDK"/cmdline-tools/*/bin/sdkmanager | sort -V | tail -1)"
+          yes | "$SDKM" --licenses > /dev/null || true
+          "$SDKM" --install "platforms;android-35" "build-tools;35.0.0" "ndk;27.2.12479018" > /dev/null
+          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_HOME=$SDK/ndk/27.2.12479018" >> "$GITHUB_ENV"
+      - name: Install pinned packaging tools
+        run: |
+          python -m pip install Pillow==11.3.0
+          go install fyne.io/fyne/v2/cmd/fyne@v2.6.3
+      - name: Build and verify the ARM64/ARMv7 APK
+        shell: bash
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          V="${TAG#v}"
+          test "$(tr -d '\r\n' < VERSION)" = "$V"
+          mkdir -p evidence
+          bash tools/build_android.sh 2>&1 | tee evidence/android-build.log
+          APK="dist/Scaner-$V-android.apk"; T="$ANDROID_HOME/build-tools/35.0.0"
+          "$T/aapt" dump badging "$APK" > evidence/android-badging.txt
+          "$T/aapt" dump permissions "$APK" | tee evidence/android-permissions.txt
+          grep -q "android.permission.INTERNET" evidence/android-permissions.txt
+          unzip -l "$APK" | grep ' lib/' | tee evidence/android-libs.txt
+          grep -q 'lib/arm64-v8a/' evidence/android-libs.txt
+          grep -q 'lib/armeabi-v7a/' evidence/android-libs.txt
+          "$T/apksigner" verify --verbose --print-certs "$APK" | tee evidence/android-signing.txt
+          "$T/zipalign" -c -P 16 4 "$APK" && echo "zipalign -P 16 4: OK" | tee -a evidence/android-signing.txt
+          cp dist/ANDROID-SIGNING.txt evidence/
+          sha256sum "$APK" | tee evidence/android-sha256.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-apk
+          path: dist/*.apk
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: evidence-android-build
+          path: evidence/
+
+  android-emulator:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.6'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Use the runner's Android SDK and install the pinned packages
+        run: |
+          SDK="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+          SDKM="$SDK/cmdline-tools/latest/bin/sdkmanager"
+          [ -x "$SDKM" ] || SDKM="$(ls "$SDK"/cmdline-tools/*/bin/sdkmanager | sort -V | tail -1)"
+          yes | "$SDKM" --licenses > /dev/null || true
+          "$SDKM" --install "platforms;android-35" "build-tools;35.0.0" "ndk;27.2.12479018" > /dev/null
+          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_HOME=$SDK/ndk/27.2.12479018" >> "$GITHUB_ENV"
+      - name: Build an x86_64 test APK from the same tag (emulator only, not published)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install Pillow==11.3.0
+          go install fyne.io/fyne/v2/cmd/fyne@v2.6.3
+          sed 's#--os android/arm64,android/arm#--os android/amd64#' tools/build_android.sh > tools/build_android_x86_64_test.sh
+          grep -q -- '--os android/amd64' tools/build_android_x86_64_test.sh
+          bash tools/build_android_x86_64_test.sh
+          mv dist/Scaner-*-android.apk test-x86_64.apk
+          mkdir -p evidence
+          cat > tools/android_smoke.sh <<'SH'
+          set -x
+          mkdir -p evidence
+          adb install -r test-x86_64.apk 2>&1 | tee evidence/emu-install.txt
+          grep -q Success evidence/emu-install.txt || exit 1
+          adb logcat -c
+          adb shell am start -W -n com.piyazche.scaner/org.golang.app.GoNativeActivity | tee evidence/emu-start.txt
+          sleep 30
+          adb shell pidof com.piyazche.scaner | tee evidence/emu-pid.txt
+          adb exec-out screencap -p > evidence/emu-1-launch.png
+          SIZE=$(adb shell wm size | tail -1 | sed 's/.*: //' | tr -d '\r'); W=${SIZE%x*}; H=${SIZE#*x}
+          DEN=$(adb shell wm density | tail -1 | sed 's/.*: //' | tr -d '\r')
+          echo "screen=$SIZE density=$DEN" | tee evidence/emu-screen.txt
+          Y=$(( H - (48 + 30) * DEN / 160 ))
+          for i in 0 1 2 3 4; do
+            X=$(( W * (2 * i + 1) / 10 ))
+            adb shell input tap $X $Y; sleep 4
+            adb exec-out screencap -p > evidence/emu-nav-$i.png
+          done
+          adb shell input swipe $((W/2)) $((H*2/3)) $((W/2)) $((H/4)) 400; sleep 3
+          adb exec-out screencap -p > evidence/emu-scrolled.png
+          adb shell pidof com.piyazche.scaner | tee evidence/emu-pid-after.txt
+          adb shell dumpsys window | grep -E 'mCurrentFocus|mFocusedApp' | tee evidence/emu-focus.txt
+          adb logcat -d > evidence/emu-logcat.txt
+          test -s evidence/emu-pid.txt && test -s evidence/emu-pid-after.txt || exit 1
+          if grep -E 'FATAL EXCEPTION|Fatal signal|panic:' evidence/emu-logcat.txt; then exit 1; fi
+          echo SMOKE_OK | tee evidence/emu-result.txt
+          SH
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+          script: bash tools/android_smoke.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: evidence-android-emulator
+          path: evidence/
+
+  android-attach:
+    needs: [android-build, android-emulator]
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: android-apk
+          path: dist
+      - uses: actions/download-artifact@v4
+        with:
+          name: evidence-android-build
+          path: ev
+      - name: Attach APK to the existing release without touching Windows files
+        shell: bash
+        run: |
+          set -euo pipefail
+          V="${TAG#v}"; APK="Scaner-$V-android.apk"
+          test -f "dist/$APK"
+          gh release download "$TAG" -p SHA256SUMS.txt -D rel
+          grep -v " $APK\$" rel/SHA256SUMS.txt > rel/sums.new || true
+          (cd dist && sha256sum "$APK") >> rel/sums.new
+          mv rel/sums.new rel/SHA256SUMS.txt
+          cat rel/SHA256SUMS.txt
+          gh release upload "$TAG" "dist/$APK" rel/SHA256SUMS.txt --clobber
+          gh release view "$TAG" --json body --jq .body | grep -v 'Android build starts after Windows publication' | sed '/^## Android APK/,$d' > notes.md
+          {
+            echo ""
+            echo "## Android APK"
+            echo "- **$APK**: one APK for ARM64 (arm64-v8a) and 32-bit ARM (armeabi-v7a) phones. No root required. x86 Android devices are not supported."
+            echo "- Built by GitHub Actions from tag $TAG, the same source as Scaner-$V-source.zip, after the Windows files were published."
+            if grep -q 'PUBLIC TEST KEY' ev/ANDROID-SIGNING.txt; then
+              echo "- **Testing build signed with a public test key.** This is not a secure production signing identity."
+            else
+              echo "- Signed with the repository's dedicated release key."
+            fi
+            echo "- Automated check: an x86_64 build of the same source installed, launched and stayed running on an Android 14 emulator. Not yet tested on a physical phone."
+            echo "- Ordinary apps cannot send raw ICMP; the app falls back to TCP connect, which is not an ICMP ping. Keep the app in the foreground while scanning. It is not a system-wide VPN."
+            echo "- SHA256SUMS.txt now also lists the APK; the Windows checksums are unchanged."
+          } >> notes.md
+          gh release edit "$TAG" --notes-file notes.md
+
+  report:
+    needs: [windows-smoke, android-build, android-emulator, android-attach]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ci-evidence
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: evidence-*
+          path: incoming
+      - name: Publish results and failure logs to the ci-evidence branch
+        shell: bash
+        run: |
+          set -uo pipefail
+          D="verification/${TAG}/run-${GITHUB_RUN_ID}"
+          mkdir -p "$D/failed-logs"
+          cp -r incoming/* "$D/" 2>/dev/null || true
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs" \
+            --jq '.jobs[] | {name, conclusion, status, url: .html_url, failed_steps: [.steps[] | select(.conclusion=="failure") | .name]}' > "$D/jobs.jsonl"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs" --jq '.jobs[] | select(.conclusion=="failure") | "\(.id) \(.name)"' |
+          while read -r id name; do
+            gh api "repos/$GITHUB_REPOSITORY/actions/jobs/$id/logs" 2>/dev/null | tail -n 200 > "$D/failed-logs/${name// /_}.txt"
+          done
+          cat > "verification/${TAG}/latest.json" <<JSON
+          {"run": "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}", "dir": "$D",
+           "windows_smoke": "${{ needs.windows-smoke.result }}", "android_build": "${{ needs.android-build.result }}",
+           "android_emulator": "${{ needs.android-emulator.result }}", "android_attach": "${{ needs.android-attach.result }}"}
+          JSON
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add verification
+          git commit -m "ci: verification evidence for ${TAG} run ${GITHUB_RUN_ID} [skip ci]"
+          git push origin HEAD:ci-evidence
