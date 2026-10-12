@@ -55,6 +55,9 @@ type UI struct {
 	Top                                      *widget.Entry
 	Log                                      *widget.Entry
 	History                                  *widget.List
+	ThemeButton                              *widget.Button
+	ThemeSelect                              *widget.Select
+	themeMode                                string
 	connectionFields, settingsFields         *fyne.Container
 	run                                      *appcore.Run
 	lastRun                                  *appcore.Run
@@ -80,7 +83,13 @@ func New(a fyne.App, w fyne.Window, dataDir, version string, mobile bool) *UI {
 	ctx, cancel := context.WithCancel(context.Background())
 	s, loadErr := appcore.LoadSession(dataDir)
 	u := &UI{App: a, Window: w, DataDir: dataDir, Mobile: mobile, Session: s, ctx: ctx, cancel: cancel, historySelected: -1, loading: true, results: scanner.NewResultCollector()}
-	a.Settings().SetTheme(appTheme{})
+	u.ThemeButton = widget.NewButtonWithIcon("", theme.ColorPaletteIcon(), func() {
+		next := map[string]string{ThemeSystem: ThemeLight, ThemeLight: ThemeDark, ThemeDark: ThemeSystem}[u.themeMode]
+		u.setTheme(next)
+	})
+	u.ThemeButton.Importance = widget.LowImportance
+	u.setTheme(a.Preferences().StringWithFallback("theme", ThemeSystem))
+	a.Settings().AddListener(func(fyne.Settings) { fyne.Do(repaintAll) })
 	w.SetIcon(Icon)
 	u.Status = widget.NewLabel("Ready · choose a mode and add your connection.")
 	u.Status.Wrapping = fyne.TextWrapWord
@@ -183,12 +192,9 @@ func New(a fyne.App, w fyne.Window, dataDir, version string, mobile bool) *UI {
 			u.refreshResults()
 		}
 	}
-	header := container.New(layout.NewCustomPaddedLayout(10, 4, 14, 14), banner(version, mobile))
-	statusBg := canvas.NewRectangle(themed(colorCard))
-	statusBg.StrokeColor = themed(colorCardStroke)
-	statusBg.StrokeWidth = 1
-	footer := container.NewStack(statusBg, container.New(layout.NewCustomPaddedLayout(2, 2, 12, 12), u.Status))
-	w.SetContent(container.NewBorder(header, footer, nil, nil, u.Tabs))
+	top := header(version, mobile, u.ThemeButton)
+	footer := container.NewVBox(widget.NewSeparator(), container.New(layout.NewCustomPaddedLayout(0, 0, 10, 10), u.Status))
+	w.SetContent(container.NewBorder(top, footer, nil, nil, u.Tabs))
 	w.Resize(fyne.NewSize(1100, 820))
 	if mobile {
 		w.Resize(fyne.NewSize(390, 844))
@@ -217,13 +223,13 @@ func (u *UI) scanTab() fyne.CanvasObject {
 	clearRanges := widget.NewButtonWithIcon("Clear", theme.ContentClearIcon(), func() { u.Source.SetText("") })
 	settings := widget.NewButtonWithIcon("Scan settings", theme.SettingsIcon(), func() { u.Tabs.SelectIndex(2) })
 
-	modeCard := card("Scan mode", "Proxy scan puts every IP into your config and really connects through it.",
+	modeCard := card("Scan mode", "Proxy scan tests each IP with your config.",
 		touchControl(u.Mode), u.ConnectionInfo)
 	targetCard := card("Targets", "",
 		touchControl(u.SourceKind), u.SourceHelp,
 		labeled("IPs per range · 0 = all", u.PerRange),
 		settings)
-	rangesCard := card("IP ranges", "One IP or CIDR per line. Comments after # are ignored.",
+	rangesCard := card("IP ranges", "",
 		u.Source,
 		container.NewBorder(nil, nil, nil, add, touchControl(preset)),
 		container.NewGridWithColumns(3, importRanges, copyRanges, clearRanges))
@@ -298,9 +304,9 @@ func (u *UI) connectionTab() fyne.CanvasObject {
 		reset.SetText("Clear")
 		connButtons = container.NewVBox(container.NewGridWithColumns(2, open, copyConfig), reset)
 	}
-	importCard := card("Your connection", "Paste a vless:// link, an Xray JSON, this app's JSON or a Base64 subscription. Everything stays on this device.",
+	importCard := card("Your connection", "vless:// link, Xray JSON, app JSON or Base64 subscription. Stays on this device.",
 		u.ImportText, parse, connButtons)
-	details := card("Connection details", "Every field stays editable.", u.connectionFields)
+	details := card("Connection details", "", u.connectionFields)
 	return page(importCard, details)
 }
 
@@ -316,10 +322,37 @@ func (u *UI) settingsTab() fyne.CanvasObject {
 		}
 	})
 	save.Importance = widget.HighImportance
-	optimize := card("Fragment optimizer", "Finds working TLS fragment values. Runs independently of a scan; tap again to stop.", u.Optimize)
-	options := card("All options", "Numeric units are shown in the field names.", u.settingsFields)
+	u.ThemeSelect = widget.NewSelect([]string{ThemeSystem, ThemeLight, ThemeDark}, nil)
+	u.ThemeSelect.SetSelected(u.themeMode)
+	u.ThemeSelect.OnChanged = func(v string) {
+		if v != u.themeMode {
+			u.setTheme(v)
+		}
+	}
+	appearance := card("Appearance", "", labeled("Theme", u.ThemeSelect))
+	optimize := card("Fragment optimizer", "Finds working TLS fragment values. Tap again to stop.", u.Optimize)
+	options := card("All options", "", u.settingsFields)
 	misc := card("Debug & saving", "Debug output can contain your connection credentials. Keep it private.", debug, save)
-	return page(optimize, options, misc)
+	return page(appearance, optimize, options, misc)
+}
+
+// setTheme switches between System / Light / Dark and remembers the choice.
+func (u *UI) setTheme(mode string) {
+	modes := map[string]string{ThemeSystem: "", ThemeLight: "light", ThemeDark: "dark"}
+	m, ok := modes[mode]
+	if !ok {
+		mode, m = ThemeSystem, ""
+	}
+	u.themeMode = mode
+	u.App.Preferences().SetString("theme", mode)
+	u.App.Settings().SetTheme(appTheme{mode: m})
+	if u.ThemeButton != nil {
+		u.ThemeButton.SetText(mode)
+	}
+	if u.ThemeSelect != nil && u.ThemeSelect.Selected != mode {
+		u.ThemeSelect.SetSelected(mode)
+	}
+	repaintAll()
 }
 
 func (u *UI) rebuildEditor() {
@@ -1029,7 +1062,7 @@ func (u *UI) resultsTab() fyne.CanvasObject {
 	if u.Mobile {
 		filters = container.NewVBox(container.NewGridWithColumns(2, labeled("Sort by", u.Sort), labeled("Top · 0 = all", u.Top)), u.GoodOnly)
 	}
-	top := container.NewVBox(sectionTitle("Live results"), muted("Quality sorts by packet-loss tier, then latency. Scroll the table sideways for every metric."), filters, gap(2))
+	top := container.NewVBox(sectionTitle("Live results"), muted("Sorted by packet loss, then latency. Scroll sideways for more columns."), filters, gap(2))
 	copyAll.Importance = widget.HighImportance
 	bottom := container.NewVBox(gap(2), container.NewGridWithColumns(3, copySelected, copyAll, details), container.NewGridWithColumns(3, csv, js, copyJSON))
 	if u.Mobile {

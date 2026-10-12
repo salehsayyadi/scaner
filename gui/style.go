@@ -2,6 +2,7 @@ package gui
 
 import (
 	"image/color"
+	"sync"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
@@ -13,16 +14,48 @@ import (
 
 // themed returns a colour from the active app theme.
 func themed(n fyne.ThemeColorName) color.Color {
-	return fyne.CurrentApp().Settings().Theme().Color(n, fyne.CurrentApp().Settings().ThemeVariant())
+	s := fyne.CurrentApp().Settings()
+	return s.Theme().Color(n, s.ThemeVariant())
 }
 
-// card wraps content in a soft rounded "pastel" surface with an optional
-// title and one-line description.
-func card(title, subtitle string, content ...fyne.CanvasObject) fyne.CanvasObject {
-	bg := canvas.NewRectangle(themed(colorCard))
-	bg.CornerRadius = 18
-	bg.StrokeColor = themed(colorCardStroke)
+// Canvas primitives (rectangles, texts) do not follow theme changes on their
+// own; they register a repaint callback that runs whenever the theme changes.
+var (
+	repaintMu sync.Mutex
+	repaints  []func()
+)
+
+func onTheme(f func()) {
+	repaintMu.Lock()
+	repaints = append(repaints, f)
+	repaintMu.Unlock()
+	f()
+}
+
+func repaintAll() {
+	repaintMu.Lock()
+	fs := append([]func(){}, repaints...)
+	repaintMu.Unlock()
+	for _, f := range fs {
+		f()
+	}
+}
+
+func surface(radius float32) *canvas.Rectangle {
+	bg := canvas.NewRectangle(color.Transparent)
+	bg.CornerRadius = radius
 	bg.StrokeWidth = 1
+	onTheme(func() {
+		bg.FillColor = themed(colorCard)
+		bg.StrokeColor = themed(colorCardStroke)
+		bg.Refresh()
+	})
+	return bg
+}
+
+// card wraps content in a soft rounded surface with an optional title and
+// one-line description.
+func card(title, subtitle string, content ...fyne.CanvasObject) fyne.CanvasObject {
 	var objs []fyne.CanvasObject
 	if title != "" {
 		objs = append(objs, sectionTitle(title))
@@ -31,25 +64,26 @@ func card(title, subtitle string, content ...fyne.CanvasObject) fyne.CanvasObjec
 		objs = append(objs, muted(subtitle))
 	}
 	objs = append(objs, content...)
-	inner := container.New(layout.NewCustomPaddedLayout(14, 14, 16, 16), container.NewVBox(objs...))
-	return container.NewStack(bg, inner)
+	inner := container.New(layout.NewCustomPaddedLayout(12, 12, 14, 14), container.NewVBox(objs...))
+	return container.NewStack(surface(16), inner)
 }
 
 // cardFill is like card but lets the content stretch (tables, lists, logs).
 func cardFill(top fyne.CanvasObject, bottom fyne.CanvasObject, content fyne.CanvasObject) fyne.CanvasObject {
-	bg := canvas.NewRectangle(themed(colorCard))
-	bg.CornerRadius = 18
-	bg.StrokeColor = themed(colorCardStroke)
-	bg.StrokeWidth = 1
-	inner := container.New(layout.NewCustomPaddedLayout(14, 14, 16, 16), container.NewBorder(top, bottom, nil, nil, content))
-	return container.NewStack(bg, inner)
+	inner := container.New(layout.NewCustomPaddedLayout(12, 12, 14, 14), container.NewBorder(top, bottom, nil, nil, content))
+	return container.NewStack(surface(16), inner)
+}
+
+func themedText(text string, size float32, bold bool, c fyne.ThemeColorName) *canvas.Text {
+	t := canvas.NewText(text, color.Transparent)
+	t.TextSize = size
+	t.TextStyle = fyne.TextStyle{Bold: bold}
+	onTheme(func() { t.Color = themed(c); t.Refresh() })
+	return t
 }
 
 func sectionTitle(text string) fyne.CanvasObject {
-	t := canvas.NewText(text, themed(theme.ColorNameForeground))
-	t.TextSize = 18
-	t.TextStyle = fyne.TextStyle{Bold: true}
-	return t
+	return themedText(text, 16, true, theme.ColorNameForeground)
 }
 
 // muted is a wrapped secondary-coloured description line.
@@ -73,35 +107,21 @@ func labeled(label string, control fyne.CanvasObject) fyne.CanvasObject {
 
 // pill renders a small rounded badge.
 func pill(text string) fyne.CanvasObject {
-	bg := canvas.NewRectangle(themed(colorPill))
-	bg.CornerRadius = 12
-	t := canvas.NewText(text, themed(theme.ColorNameForeground))
-	t.TextSize = 13
-	t.TextStyle = fyne.TextStyle{Bold: true}
-	return container.NewStack(bg, container.New(layout.NewCustomPaddedLayout(4, 4, 12, 12), t))
+	bg := canvas.NewRectangle(color.Transparent)
+	bg.CornerRadius = 10
+	onTheme(func() { bg.FillColor = themed(colorPill); bg.Refresh() })
+	t := themedText(text, 12, true, colorMuted)
+	return container.NewStack(bg, container.New(layout.NewCustomPaddedLayout(3, 3, 10, 10), t))
 }
 
-// banner is the soft gradient header with the app name, tagline and version.
-func banner(version string, mobile bool) fyne.CanvasObject {
-	grad := canvas.NewHorizontalGradient(themed(colorBannerA), themed(colorBannerB))
-	title := canvas.NewText("Scaner", themed(theme.ColorNameForeground))
-	title.TextSize = 26
-	title.TextStyle = fyne.TextStyle{Bold: true}
-	if mobile {
-		title.TextSize = 22
-	}
-	tag := canvas.NewText("Find clean, fast IPs for your connection", themed(colorMuted))
-	tag.TextSize = 13
+// header is the minimal top bar: icon, name, version and the theme toggle.
+func header(version string, mobile bool, toggle fyne.CanvasObject) fyne.CanvasObject {
+	title := themedText("Scaner", 20, true, theme.ColorNameForeground)
 	icon := canvas.NewImageFromResource(Icon)
-	icon.SetMinSize(fyne.NewSize(44, 44))
+	icon.SetMinSize(fyne.NewSize(30, 30))
 	icon.FillMode = canvas.ImageFillContain
-	text := container.NewVBox(title, tag)
-	if mobile {
-		icon.SetMinSize(fyne.NewSize(36, 36))
-		text = container.NewVBox(title)
-	}
-	row := container.NewBorder(nil, nil, container.NewHBox(icon, text), container.NewCenter(pill("v"+version)))
-	return container.NewStack(grad, container.New(layout.NewCustomPaddedLayout(12, 12, 18, 18), row))
+	left := container.NewHBox(icon, container.NewCenter(title), container.NewCenter(pill("v"+version)))
+	return container.New(layout.NewCustomPaddedLayout(8, 2, 16, 12), container.NewBorder(nil, nil, left, toggle))
 }
 
 // minWidth forces a minimum width on o (used for the desktop side column).
@@ -123,9 +143,9 @@ func page(objs ...fyne.CanvasObject) fyne.CanvasObject {
 	var spaced []fyne.CanvasObject
 	for i, o := range objs {
 		if i > 0 {
-			spaced = append(spaced, gap(4))
+			spaced = append(spaced, gap(6))
 		}
 		spaced = append(spaced, o)
 	}
-	return container.NewVScroll(container.New(layout.NewCustomPaddedLayout(10, 16, 14, 14), container.NewVBox(spaced...)))
+	return container.NewVScroll(container.New(layout.NewCustomPaddedLayout(8, 16, 14, 14), container.NewVBox(spaced...)))
 }

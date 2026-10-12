@@ -9,7 +9,27 @@ import (
 
 // Soft "pastel" palette: lavender primary, mint / peach / rose accents on a
 // creamy background (light) or a deep plum night sky (dark).
-type appTheme struct{}
+type appTheme struct {
+	// mode is "light", "dark" or "" (follow the system setting).
+	mode string
+}
+
+// Theme mode labels used by the header toggle and Settings.
+const (
+	ThemeSystem = "System"
+	ThemeLight  = "Light"
+	ThemeDark   = "Dark"
+)
+
+func (t appTheme) variant(v fyne.ThemeVariant) fyne.ThemeVariant {
+	switch t.mode {
+	case "light":
+		return theme.VariantLight
+	case "dark":
+		return theme.VariantDark
+	}
+	return v
+}
 
 // Custom colour names used by the card and banner helpers.
 const (
@@ -25,7 +45,7 @@ func rgb(r, g, b uint8) color.NRGBA      { return color.NRGBA{R: r, G: g, B: b, 
 func rgba(r, g, b, a uint8) color.NRGBA { return color.NRGBA{R: r, G: g, B: b, A: a} }
 
 var pastelLight = map[fyne.ThemeColorName]color.Color{
-	theme.ColorNameBackground:          rgb(246, 243, 255),
+	theme.ColorNameBackground:          rgb(247, 245, 252),
 	theme.ColorNameForeground:          rgb(58, 52, 84),
 	theme.ColorNamePrimary:             rgb(141, 123, 240),
 	theme.ColorNameFocus:               rgba(141, 123, 240, 150),
@@ -54,7 +74,7 @@ var pastelLight = map[fyne.ThemeColorName]color.Color{
 	theme.ColorNameForegroundOnError:   rgb(255, 255, 255),
 	theme.ColorNameHyperlink:           rgb(120, 100, 230),
 	colorCard:                          rgb(255, 255, 255),
-	colorCardStroke:                    rgb(232, 226, 252),
+	colorCardStroke:                    rgb(238, 234, 252),
 	colorBannerA:                       rgb(255, 214, 231),
 	colorBannerB:                       rgb(206, 222, 255),
 	colorPill:                          rgba(255, 255, 255, 190),
@@ -98,7 +118,8 @@ var pastelDark = map[fyne.ThemeColorName]color.Color{
 	colorMuted:                         rgb(170, 162, 200),
 }
 
-func (appTheme) Color(n fyne.ThemeColorName, v fyne.ThemeVariant) color.Color {
+func (t appTheme) Color(n fyne.ThemeColorName, v fyne.ThemeVariant) color.Color {
+	v = t.variant(v)
 	palette := pastelLight
 	if v == theme.VariantDark {
 		palette = pastelDark
