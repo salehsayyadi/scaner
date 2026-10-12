@@ -1,13 +1,6 @@
 {
-  "state": "ready",
-  "version": "3.2.4",
-  "source_sha": "fdbe17832127b56774611e108fae12ecc07cc777",
-  "prepare": "success",
-  "tests": "success",
-  "windows": "success",
-  "android": "success",
-  "publish": "success",
-  "run_url": "https://github.com/salehsayyadi/scaner/actions/runs/38240396792",
-  "release_url": "https://github.com/salehsayyadi/scaner/releases/tag/v3.2.4",
-  "failed_jobs": []
+  "state": "building",
+  "version": "3.3.4",
+  "run_url": "https://github.com/salehsayyadi/scaner/actions/runs/38241984425",
+  "source_sha": "61d23a0a46ed4be59f650f99a06cd90915d8ed3d"
 }
