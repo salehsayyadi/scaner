@@ -219,7 +219,7 @@ jobs:
           ## Scaner $VERSION
           - Windows: download **Scaner-Setup-$VERSION.exe** for installation, or **Scaner-$VERSION-windows-amd64-PORTABLE.exe** for portable use (no installation).
           - The GUI embeds the original Go/Xray engine, assets and range presets. No sidecar DLL, config file or separate Xray executable is required.
-          - Legacy CLI/TUI retained as a separate optional executable; full source and SHA256 checksums are included.
+          - Command-line (CLI/TUI) version, full source and SHA256 checksums are included.
           - Settings and results are saved in the user application-data directory, not beside the executable.
           - Windows binaries are not Authenticode-signed. Confirm the repository and checksum before installing.
           EOF
