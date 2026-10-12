@@ -101,9 +101,9 @@ jobs:
         run: |
           mkdir -p dist
           go run github.com/akavel/rsrc@v0.10.2 -ico build/icon.ico -manifest packaging/windows/app.manifest -o cmd/scaner/rsrc_windows_amd64.syso
-          go build -trimpath -ldflags="-H=windowsgui -s -w -checklinkname=0 -extldflags=-static -X main.Version=$VERSION" -o "dist/Scaner-$VERSION-windows-amd64.exe" ./cmd/scaner
+          go build -trimpath -ldflags="-H=windowsgui -s -w -checklinkname=0 -extldflags=-static -X main.Version=$VERSION" -o "dist/Scaner-$VERSION-windows-amd64-PORTABLE.exe" ./cmd/scaner
           CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -checklinkname=0 -X main.Version=$VERSION" -o "dist/Scaner-cli-$VERSION-windows-amd64.exe" .
-          objdump -p "dist/Scaner-$VERSION-windows-amd64.exe" | grep 'DLL Name:' | tee build/windows-imports.txt
+          objdump -p "dist/Scaner-$VERSION-windows-amd64-PORTABLE.exe" | grep 'DLL Name:' | tee build/windows-imports.txt
           if grep -Ei 'libgcc|libstdc|libwinpthread|msys-' build/windows-imports.txt; then
             echo "Unexpected non-system DLL dependency"; exit 1
           fi
@@ -126,7 +126,7 @@ jobs:
           $p = Start-Process $setup -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/DIR=$dir" -Wait -PassThru
           if ($p.ExitCode -ne 0) { throw "Installer returned $($p.ExitCode)" }
           $installed = Get-FileHash (Join-Path $dir "Scaner.exe")
-          $standalone = Get-FileHash "dist/Scaner-$version-windows-amd64.exe"
+          $standalone = Get-FileHash "dist/Scaner-$version-windows-amd64-PORTABLE.exe"
           if ($installed.Hash -ne $standalone.Hash) { throw "Installed program differs from the standalone executable" }
       - uses: actions/upload-artifact@v4
         with:
@@ -217,7 +217,7 @@ jobs:
           git archive --format=zip --prefix="scaner-$VERSION/" --output="dist/Scaner-$VERSION-source.zip" HEAD
           cat > release-notes.md <<EOF
           ## Scaner $VERSION
-          - Windows: download **Scaner-Setup-$VERSION.exe** for installation, or the standalone GUI executable for portable use.
+          - Windows: download **Scaner-Setup-$VERSION.exe** for installation, or **Scaner-$VERSION-windows-amd64-PORTABLE.exe** for portable use (no installation).
           - The GUI embeds the original Go/Xray engine, assets and range presets. No sidecar DLL, config file or separate Xray executable is required.
           - Legacy CLI/TUI retained as a separate optional executable; full source and SHA256 checksums are included.
           - Settings and results are saved in the user application-data directory, not beside the executable.

@@ -2,7 +2,7 @@
   #define AppVersion "2.0.3"
 #endif
 #ifndef AppExe
-  #define AppExe "..\..\dist\Scaner-" + AppVersion + "-windows-amd64.exe"
+  #define AppExe "..\..\dist\Scaner-" + AppVersion + "-windows-amd64-PORTABLE.exe"
 #endif
 
 [Setup]

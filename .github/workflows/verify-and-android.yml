@@ -70,7 +70,7 @@ jobs:
           set -euo pipefail
           python -m pip install --quiet pefile==2024.8.26
           V="${TAG#v}"
-          python - "rel/Scaner-$V-windows-amd64.exe" > evidence/win-pe.txt <<'PY'
+          python - "rel/Scaner-$V-windows-amd64-PORTABLE.exe" > evidence/win-pe.txt <<'PY'
           import sys, pefile
           pe = pefile.PE(sys.argv[1])
           print("machine", hex(pe.FILE_HEADER.Machine), "subsystem", pe.OPTIONAL_HEADER.Subsystem)
@@ -137,7 +137,7 @@ jobs:
 
           # 1. Standalone EXE, copied alone into an empty folder (plus Mesa for CI only).
           $port = Join-Path $env:RUNNER_TEMP 'portable'; New-Item -ItemType Directory $port | Out-Null
-          Copy-Item "rel\Scaner-$v-windows-amd64.exe" (Join-Path $port 'Scaner.exe'); AddMesa $port
+          Copy-Item "rel\Scaner-$v-windows-amd64-PORTABLE.exe" (Join-Path $port 'Scaner.exe'); AddMesa $port
           $p = Launch (Join-Path $port 'Scaner.exe') 'standalone'
           [W]::ShowWindow($p.MainWindowHandle, 3) | Out-Null; Start-Sleep 3; Shot 'win-standalone-maximized.png'
           [W]::SetForegroundWindow($p.MainWindowHandle) | Out-Null; Start-Sleep 1
@@ -162,7 +162,7 @@ jobs:
           Log ("installed files: $((Get-ChildItem $app).Name -join ', ')")
           Log ("start menu shortcut: $(Test-Path $lnkStart); desktop shortcut: $(Test-Path $lnkDesk)")
           if (-not (Test-Path $lnkStart) -or -not (Test-Path $lnkDesk)) { throw 'shortcut missing' }
-          if ((Get-FileHash "$app\Scaner.exe").Hash -ne (Get-FileHash "rel\Scaner-$v-windows-amd64.exe").Hash) { throw 'installed exe differs' }
+          if ((Get-FileHash "$app\Scaner.exe").Hash -ne (Get-FileHash "rel\Scaner-$v-windows-amd64-PORTABLE.exe").Hash) { throw 'installed exe differs' }
           AddMesa $app
           $p = Launch "$app\Scaner.exe" 'installed'; Shot 'win-installed.png'; $p.Kill(); Start-Sleep 2
           Get-ChildItem $app -Filter *.dll | Remove-Item
