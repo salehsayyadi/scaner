@@ -41,7 +41,7 @@ const (
 	colorMuted      fyne.ThemeColorName = "scanerMuted"
 )
 
-func rgb(r, g, b uint8) color.NRGBA      { return color.NRGBA{R: r, G: g, B: b, A: 255} }
+func rgb(r, g, b uint8) color.NRGBA     { return color.NRGBA{R: r, G: g, B: b, A: 255} }
 func rgba(r, g, b, a uint8) color.NRGBA { return color.NRGBA{R: r, G: g, B: b, A: a} }
 
 var pastelLight = map[fyne.ThemeColorName]color.Color{
@@ -133,7 +133,15 @@ func (t appTheme) Color(n fyne.ThemeColorName, v fyne.ThemeVariant) color.Color 
 	return theme.DefaultTheme().Color(n, v)
 }
 
-func (appTheme) Font(s fyne.TextStyle) fyne.Resource     { return theme.DefaultTheme().Font(s) }
+func (appTheme) Font(s fyne.TextStyle) fyne.Resource {
+	if lang == LangPersian && !s.Monospace && !s.Symbol && fontFaRegular != nil {
+		if s.Bold {
+			return fontFaBold
+		}
+		return fontFaRegular
+	}
+	return theme.DefaultTheme().Font(s)
+}
 func (appTheme) Icon(n fyne.ThemeIconName) fyne.Resource { return theme.DefaultTheme().Icon(n) }
 func (appTheme) Size(n fyne.ThemeSizeName) float32 {
 	switch n {

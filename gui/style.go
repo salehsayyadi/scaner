@@ -83,19 +83,21 @@ func themedText(text string, size float32, bold bool, c fyne.ThemeColorName) *ca
 }
 
 func sectionTitle(text string) fyne.CanvasObject {
-	return themedText(text, 16, true, theme.ColorNameForeground)
+	t := themedText(T(text), 16, true, theme.ColorNameForeground)
+	t.Alignment = textAlign()
+	return t
 }
 
 // muted is a wrapped secondary-coloured description line.
 func muted(text string) fyne.CanvasObject {
-	l := widget.NewRichText(&widget.TextSegment{Text: text, Style: widget.RichTextStyle{ColorName: colorMuted, Inline: true, SizeName: theme.SizeNameText}})
+	l := widget.NewRichText(&widget.TextSegment{Text: T(text), Style: widget.RichTextStyle{ColorName: colorMuted, Inline: true, SizeName: theme.SizeNameText, Alignment: textAlign()}})
 	l.Wrapping = fyne.TextWrapWord
 	return l
 }
 
 // fieldLabel is a small bold caption above a control.
 func fieldLabel(text string) fyne.CanvasObject {
-	l := widget.NewLabelWithStyle(text, fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
+	l := widget.NewLabelWithStyle(T(text), textAlign(), fyne.TextStyle{Bold: true})
 	l.Wrapping = fyne.TextWrapWord
 	return l
 }
@@ -148,4 +150,12 @@ func page(objs ...fyne.CanvasObject) fyne.CanvasObject {
 		spaced = append(spaced, o)
 	}
 	return container.NewVScroll(container.New(layout.NewCustomPaddedLayout(8, 16, 14, 14), container.NewVBox(spaced...)))
+}
+
+// textAlign right-aligns text for right-to-left languages.
+func textAlign() fyne.TextAlign {
+	if lang == LangPersian {
+		return fyne.TextAlignTrailing
+	}
+	return fyne.TextAlignLeading
 }

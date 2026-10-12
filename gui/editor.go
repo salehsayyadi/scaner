@@ -1,6 +1,7 @@
 package gui
 
 import (
+	"errors"
 	"fmt"
 	"reflect"
 	"sort"
@@ -65,7 +66,7 @@ func (e *Editor) build(v reflect.Value, path string) fyne.CanvasObject {
 		p := path + "." + name
 		value := v.Field(i)
 		if value.Kind() == reflect.Struct || value.Kind() == reflect.Pointer {
-			groups = append(groups, widget.NewAccordionItem(friendly(name), e.build(value, p)))
+			groups = append(groups, widget.NewAccordionItem(T(friendly(name)), e.build(value, p)))
 			continue
 		}
 		control := e.control(value, p)
@@ -97,7 +98,7 @@ var choices = map[string][]string{
 
 func (e *Editor) control(v reflect.Value, path string) fyne.CanvasObject {
 	if v.Kind() == reflect.Bool {
-		c := widget.NewCheck("Enabled", nil)
+		c := widget.NewCheck(T("Enabled"), nil)
 		c.SetChecked(v.Bool())
 		c.OnChanged = func(b bool) { v.SetBool(b); e.changed() }
 		return c
@@ -134,7 +135,7 @@ func (e *Editor) control(v reflect.Value, path string) fyne.CanvasObject {
 			parts = append(parts, v.Index(i).String())
 		}
 		c.SetText(strings.Join(parts, ", "))
-		c.SetPlaceHolder("Comma-separated values")
+		c.SetPlaceHolder(T("Comma-separated values"))
 	}
 	c.OnChanged = func(s string) {
 		delete(e.errors, path)
@@ -164,7 +165,7 @@ func (e *Editor) control(v reflect.Value, path string) fyne.CanvasObject {
 			v.Set(reflect.ValueOf(values))
 		}
 		if err != nil {
-			e.errors[path] = fmt.Errorf("enter a valid number")
+			e.errors[path] = errors.New(T("enter a valid number"))
 		}
 		c.SetValidationError(e.errors[path])
 		e.changed()

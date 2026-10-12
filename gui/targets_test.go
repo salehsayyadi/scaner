@@ -49,10 +49,15 @@ func TestScanTargetsControls(t *testing.T) {
 		t.Fatalf("preview=%q breakdown=%q", u.Preview.Text, u.Breakdown.Text)
 	}
 
-	u.Mode.SetSelected(appcore.ModeCheck)
-	if !strings.Contains(u.Preview.Text, "tests only the server address") {
-		t.Fatalf("check preview=%q", u.Preview.Text)
+	// The misleading "Check connection" mode is gone; only two clear modes remain.
+	if len(u.Mode.Options) != 2 || u.mode() != appcore.ModeXray {
+		t.Fatalf("modes=%v", u.Mode.Options)
 	}
+	u.Mode.SetSelected(modeLabel(appcore.ModeConnectivity))
+	if u.Session.Mode != appcore.ModeConnectivity {
+		t.Fatalf("mode=%q", u.Session.Mode)
+	}
+	u.Mode.SetSelected(modeLabel(appcore.ModeXray))
 
 	s, err := appcore.LoadSession(u.DataDir)
 	if err != nil || s.Source != appcore.SourceIPList || s.Config.Scan.SampleSize != 25 {
