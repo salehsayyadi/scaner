@@ -191,14 +191,14 @@ func DefaultConfig() *Config {
 			},
 		},
 		Scan: ScanConfig{
-			Threads:     1,
+			Threads:     8,
 			Timeout:     10,
 			TestURL:     "https://www.gstatic.com/generate_204",
 			MaxLatency:  2500,
 			Retries:     2,
 			MaxIPs:      0,
 			Shuffle:     true,
-			SampleSize:  1,
+			SampleSize:  100,
 			TCPPrecheck: true,
 
 			RealisticPing: true,

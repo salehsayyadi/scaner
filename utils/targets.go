@@ -27,7 +27,7 @@ type RangeInfo struct {
 // Label returns the entered range plus its normalized network when they differ.
 func (r RangeInfo) Label() string {
 	if r.Network != "" && r.Network != r.Entered {
-		return r.Entered + " → " + r.Network
+		return r.Entered + " (= " + r.Network + ")"
 	}
 	return r.Entered
 }

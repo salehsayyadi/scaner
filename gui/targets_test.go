@@ -17,10 +17,10 @@ func TestScanTargetsControls(t *testing.T) {
 	defer u.Close()
 
 	u.Source.SetText("185.133.35.0/16\n208.86.168.0/16\n212.183.88.0/16")
-	if !strings.Contains(u.Breakdown.Text, "185.133.35.0/16 → 185.133.0.0/16") || !strings.Contains(u.Breakdown.Text, "65,536 IPs in range · 1 queued") {
+	if !strings.Contains(u.Breakdown.Text, "185.133.35.0/16 (= 185.133.0.0/16)") || !strings.Contains(u.Breakdown.Text, "65,536 IPs in range · 100 queued") {
 		t.Fatalf("breakdown=%q", u.Breakdown.Text)
 	}
-	if !strings.Contains(u.Preview.Text, "3 IPs will be scanned from 3 range(s)") {
+	if !strings.Contains(u.Preview.Text, "300 IPs will be scanned from 3 range(s)") {
 		t.Fatalf("preview=%q", u.Preview.Text)
 	}
 

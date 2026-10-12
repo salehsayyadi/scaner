@@ -53,3 +53,6 @@ __pycache__/
 *.apk
 *.keystore
 *.jks
+
+# Local tooling
+.claude/

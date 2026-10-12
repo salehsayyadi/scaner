@@ -44,7 +44,7 @@ func TestCorruptSessionDoesNotBecomeEmptyConfig(t *testing.T) {
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "session.json"), []byte("{broken"), 0600)
 	s, err := LoadSession(dir)
-	if err == nil || s.Config == nil || s.Config.Scan.Threads != 1 {
+	if err == nil || s.Config == nil || s.Config.Scan.Threads != config.DefaultConfig().Scan.Threads {
 		t.Fatal("corrupt session was not reported")
 	}
 }

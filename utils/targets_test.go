@@ -21,7 +21,7 @@ func TestPlanRangesCountsHostsAndQueue(t *testing.T) {
 	if ranges[0].Network != "185.133.0.0/16" || ranges[0].Hosts != 65536 || ranges[0].Queued != 5 {
 		t.Fatalf("first=%+v", ranges[0])
 	}
-	if ranges[0].Label() != "185.133.35.0/16 → 185.133.0.0/16" {
+	if ranges[0].Label() != "185.133.35.0/16 (= 185.133.0.0/16)" {
 		t.Fatalf("label=%q", ranges[0].Label())
 	}
 	if ranges[1].Hosts != 254 || ranges[1].Queued != 5 {
