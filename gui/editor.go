@@ -70,7 +70,7 @@ func (e *Editor) build(v reflect.Value, path string) fyne.CanvasObject {
 		}
 		control := e.control(value, p)
 		e.controls[p] = control
-		objects = append(objects, container.NewVBox(widget.NewLabel(friendly(name)), touchControl(control)))
+		objects = append(objects, labeled(friendly(name), control))
 	}
 	if len(groups) > 0 {
 		a := widget.NewAccordion(groups...)

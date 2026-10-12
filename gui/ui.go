@@ -28,6 +28,7 @@ import (
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/driver/desktop"
+	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/storage"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
@@ -146,6 +147,8 @@ func New(a fyne.App, w fyne.Window, dataDir, version string, mobile bool) *UI {
 			u.Status.SetText("Stopping…")
 		}
 	})
+	u.Pause.Importance = widget.WarningImportance
+	u.Stop.Importance = widget.DangerImportance
 	u.Optimize = widget.NewButtonWithIcon("Optimize fragments", theme.SettingsIcon(), u.optimize)
 	u.Pause.Disable()
 	u.Stop.Disable()
@@ -180,16 +183,12 @@ func New(a fyne.App, w fyne.Window, dataDir, version string, mobile bool) *UI {
 			u.refreshResults()
 		}
 	}
-	title := canvas.NewText("Scaner", theme.ForegroundColor())
-	title.TextSize = 27
-	title.TextStyle = fyne.TextStyle{Bold: true}
-	icon := canvas.NewImageFromResource(Icon)
-	icon.SetMinSize(fyne.NewSize(40, 40))
-	icon.FillMode = canvas.ImageFillContain
-	brand := container.NewHBox(icon, container.NewVBox(title, widget.NewLabel("Piyazche engine")))
-	header := container.NewBorder(nil, nil, brand, widget.NewLabel("v"+version))
-	footer := container.NewVBox(widget.NewSeparator(), u.Status)
-	w.SetContent(container.NewBorder(container.NewPadded(header), container.NewPadded(footer), nil, nil, u.Tabs))
+	header := container.New(layout.NewCustomPaddedLayout(10, 4, 14, 14), banner(version, mobile))
+	statusBg := canvas.NewRectangle(themed(colorCard))
+	statusBg.StrokeColor = themed(colorCardStroke)
+	statusBg.StrokeWidth = 1
+	footer := container.NewStack(statusBg, container.New(layout.NewCustomPaddedLayout(2, 2, 12, 12), u.Status))
+	w.SetContent(container.NewBorder(header, footer, nil, nil, u.Tabs))
 	w.Resize(fyne.NewSize(1100, 820))
 	if mobile {
 		w.Resize(fyne.NewSize(390, 844))
@@ -211,43 +210,48 @@ func (u *UI) scanTab() fyne.CanvasObject {
 	add := widget.NewButtonWithIcon("Add preset", theme.ContentAddIcon(), func() {
 		u.Source.SetText(mergePreset(u.Source.Text, Presets[preset.Selected]))
 	})
-	importRanges := widget.NewButtonWithIcon("Import IP file", theme.FolderOpenIcon(), func() {
+	importRanges := widget.NewButtonWithIcon("Import", theme.FolderOpenIcon(), func() {
 		u.readFile(func(text string) { u.Source.SetText(text) }, ".txt", ".csv")
 	})
-	copyRanges := widget.NewButtonWithIcon("Copy ranges", theme.ContentCopyIcon(), func() { u.App.Clipboard().SetContent(u.Source.Text); u.Status.SetText("Ranges copied.") })
-	ranges := container.NewVBox(
-		heading("IP ranges"),
-		u.Source, u.Preview,
-		widget.NewLabelWithStyle("Per range · IPs in range · queued · tested · good", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
-		u.Breakdown,
-		widget.NewSeparator(),
-		container.NewGridWithColumns(2, touchControl(preset), add),
-		container.NewGridWithColumns(2, importRanges, copyRanges),
-	)
-	targets := []fyne.CanvasObject{
-		widget.NewLabel("Targets"), touchControl(u.SourceKind), u.SourceHelp,
-		widget.NewLabel("IPs per range · 0 = all"), touchControl(u.PerRange),
-	}
-	setup := container.NewVBox(append([]fyne.CanvasObject{heading("Find the best route"),
-		wrapped("Test your proxy, one connection, or reachability without a proxy."),
-		widget.NewLabel("Scan mode"), touchControl(u.Mode), u.ConnectionInfo},
-		append(targets,
-			widget.NewButtonWithIcon("Scan settings", theme.SettingsIcon(), func() { u.Tabs.SelectIndex(2) }),
-			wrapped("No scan starts automatically. Only test targets you are allowed to probe."))...)...,
-	)
+	copyRanges := widget.NewButtonWithIcon("Copy", theme.ContentCopyIcon(), func() { u.App.Clipboard().SetContent(u.Source.Text); u.Status.SetText("Ranges copied.") })
+	clearRanges := widget.NewButtonWithIcon("Clear", theme.ContentClearIcon(), func() { u.Source.SetText("") })
+	settings := widget.NewButtonWithIcon("Scan settings", theme.SettingsIcon(), func() { u.Tabs.SelectIndex(2) })
+
+	modeCard := card("Scan mode", "Proxy scan puts every IP into your config and really connects through it.",
+		touchControl(u.Mode), u.ConnectionInfo)
+	targetCard := card("Targets", "",
+		touchControl(u.SourceKind), u.SourceHelp,
+		labeled("IPs per range · 0 = all", u.PerRange),
+		settings)
+	rangesCard := card("IP ranges", "One IP or CIDR per line. Comments after # are ignored.",
+		u.Source,
+		container.NewBorder(nil, nil, nil, add, touchControl(preset)),
+		container.NewGridWithColumns(3, importRanges, copyRanges, clearRanges))
+	planCard := card("Scan plan", "", u.Preview,
+		fieldLabel("Per range · IPs in range · queued · tested · good"),
+		u.Breakdown)
+	note := muted("No scan starts automatically. Only test targets you are allowed to probe.")
+
 	var body fyne.CanvasObject
 	if u.Mobile {
-		body = container.NewVScroll(container.NewPadded(container.NewVBox(append(append([]fyne.CanvasObject{
-			widget.NewLabel("Scan mode"), touchControl(u.Mode), u.ConnectionInfo}, targets...), ranges)...,
-		)))
+		body = page(modeCard, targetCard, rangesCard, planCard, note)
 	} else {
-		split := container.NewHSplit(container.NewVScroll(container.NewPadded(setup)), container.NewVScroll(container.NewPadded(ranges)))
-		split.Offset = .32
-		body = split
+		// One scroll for the whole page: the mouse wheel always moves the page,
+		// never a nested pane, and both columns stay aligned.
+		left := minWidth(330, container.NewVBox(modeCard, gap(4), targetCard, gap(4), note))
+		right := container.NewVBox(rangesCard, gap(4), planCard)
+		body = page(container.NewBorder(nil, nil, left, nil, container.New(layout.NewCustomPaddedLayout(0, 0, 8, 0), right)))
 	}
 	// Start/pause/stop and progress never disappear below a scrollable form.
-	actions := container.NewPadded(container.NewVBox(widget.NewSeparator(), u.Summary, u.Current, u.Progress,
-		container.NewGridWithColumns(3, u.Start, u.Pause, u.Stop)))
+	buttons := container.NewGridWithColumns(3, u.Start, u.Pause, u.Stop)
+	var bar fyne.CanvasObject
+	if u.Mobile {
+		bar = card("", "", container.NewBorder(nil, nil, u.Summary, nil, u.Current), u.Progress, buttons)
+	} else {
+		info := container.NewBorder(nil, nil, u.Summary, nil, u.Current)
+		bar = card("", "", info, container.NewBorder(nil, nil, nil, minWidth(460, buttons), container.NewPadded(u.Progress)))
+	}
+	actions := container.New(layout.NewCustomPaddedLayout(2, 6, 14, 14), bar)
 	return container.NewBorder(nil, actions, nil, nil, body)
 }
 
@@ -272,22 +276,50 @@ func (u *UI) connectionTab() fyne.CanvasObject {
 		u.App.Clipboard().SetContent(string(b))
 		u.Status.SetText("Full configuration copied · it may contain private credentials.")
 	})
-	body := container.NewVBox(heading("Your connection"), wrapped("Paste once. Connection details and every advanced field remain editable below."), u.ImportText, parse, container.NewGridWithColumns(2, open, copyConfig), widget.NewSeparator(), u.connectionFields)
-	return container.NewVScroll(container.NewPadded(body))
+	reset := widget.NewButtonWithIcon("Clear connection", theme.DeleteIcon(), func() {
+		dialog.ShowConfirm("Clear connection", "Remove the saved connection (address, UUID, SNI…)? Scan settings are kept.", func(ok bool) {
+			if !ok {
+				return
+			}
+			c := config.DefaultConfig()
+			c.Scan, c.Output, c.Xray, c.Fragment = u.Session.Config.Scan, u.Session.Config.Output, u.Session.Config.Xray, u.Session.Config.Fragment
+			u.Session.Config = c
+			u.ImportText.SetText("")
+			u.rebuildEditor()
+			u.updateConnectionInfo()
+			u.autoSave()
+			u.Status.SetText("Connection cleared.")
+		}, u.Window)
+	})
+	reset.Importance = widget.DangerImportance
+	connButtons := fyne.CanvasObject(container.NewGridWithColumns(3, open, copyConfig, reset))
+	if u.Mobile {
+		copyConfig.SetText("Copy config")
+		reset.SetText("Clear")
+		connButtons = container.NewVBox(container.NewGridWithColumns(2, open, copyConfig), reset)
+	}
+	importCard := card("Your connection", "Paste a vless:// link, an Xray JSON, this app's JSON or a Base64 subscription. Everything stays on this device.",
+		u.ImportText, parse, connButtons)
+	details := card("Connection details", "Every field stays editable.", u.connectionFields)
+	return page(importCard, details)
 }
 
 func (u *UI) settingsTab() fyne.CanvasObject {
-	debug := widget.NewCheck("Debug: save the generated Xray configuration", nil)
+	debug := widget.NewCheck("Save Xray debug config", nil)
 	debug.SetChecked(u.Session.Debug)
 	debug.OnChanged = func(v bool) { u.Session.Debug = v; u.autoSave() }
-	body := container.NewVBox(heading("Full control"), wrapped("Every option from the original configuration is available. Numeric units are shown in the field labels."), u.Optimize, wrapped("Optimization runs independently of an active scan. Stop it with the same button."), u.settingsFields, widget.NewSeparator(), debug, wrapped("Debug output can contain your connection credentials. Keep it private."), widget.NewButtonWithIcon("Save settings", theme.DocumentSaveIcon(), func() {
+	save := widget.NewButtonWithIcon("Save settings", theme.DocumentSaveIcon(), func() {
 		if err := u.save(); err != nil {
 			u.showError(err)
 		} else {
 			u.Status.SetText("Settings saved in your application data folder.")
 		}
-	}))
-	return container.NewVScroll(container.NewPadded(body))
+	})
+	save.Importance = widget.HighImportance
+	optimize := card("Fragment optimizer", "Finds working TLS fragment values. Runs independently of a scan; tap again to stop.", u.Optimize)
+	options := card("All options", "Numeric units are shown in the field names.", u.settingsFields)
+	misc := card("Debug & saving", "Debug output can contain your connection credentials. Keep it private.", debug, save)
+	return page(optimize, options, misc)
 }
 
 func (u *UI) rebuildEditor() {
@@ -513,6 +545,12 @@ func (u *UI) start() {
 	}
 	if u.Mode.Selected == appcore.ModeCheck && strings.TrimSpace(u.Source.Text) != "" {
 		addr := u.Session.Config.Proxy.Address
+		if a := strings.ToUpper(strings.TrimSpace(addr)); a == "" || a == "IP.IP.IP.IP" || a == "IP" {
+			// A placeholder server address can only be meant as "scan my IPs".
+			u.Mode.SetSelected(appcore.ModeXray)
+			u.startNow()
+			return
+		}
 		msg := wrapped("Check connection tests only your server address (" + addr + ") from the Connection tab. It does not scan the IPs or ranges you entered.\n\nTo test those IPs through your proxy, use Proxy scan.")
 		dialog.NewCustomConfirm("Check connection", "Scan my IPs (Proxy scan)", "Check server only", msg, func(scanRanges bool) {
 			if scanRanges {
@@ -987,13 +1025,17 @@ func (u *UI) resultsTab() fyne.CanvasObject {
 	csv := widget.NewButtonWithIcon("Export CSV", theme.DocumentSaveIcon(), func() { u.export("csv", false) })
 	js := widget.NewButtonWithIcon("Export JSON", theme.DocumentSaveIcon(), func() { u.export("json", false) })
 	copyJSON := widget.NewButtonWithIcon("Copy JSON", theme.ContentCopyIcon(), func() { u.export("json", true) })
-	top := container.NewVBox(heading("Live results"), wrapped("Quality sorts by packet-loss tier, then latency. Scroll the table sideways to see every metric."),
-		container.NewGridWithColumns(2, container.NewVBox(widget.NewLabel("Sort by"), touchControl(u.Sort)), container.NewVBox(widget.NewLabel("Top results · 0 = all"), touchControl(u.Top))), u.GoodOnly)
-	bottom := container.NewVBox(container.NewGridWithColumns(3, copySelected, copyAll, details), container.NewGridWithColumns(3, csv, js, copyJSON))
+	filters := container.NewGridWithColumns(3, labeled("Sort by", u.Sort), labeled("Top results · 0 = all", u.Top), container.NewVBox(fieldLabel("Show"), touchControl(u.GoodOnly)))
 	if u.Mobile {
-		bottom = container.NewVBox(container.NewGridWithColumns(2, copySelected, copyAll), details, container.NewGridWithColumns(2, csv, js), copyJSON)
+		filters = container.NewVBox(container.NewGridWithColumns(2, labeled("Sort by", u.Sort), labeled("Top · 0 = all", u.Top)), u.GoodOnly)
 	}
-	return container.NewPadded(container.NewBorder(top, bottom, nil, nil, u.Table))
+	top := container.NewVBox(sectionTitle("Live results"), muted("Quality sorts by packet-loss tier, then latency. Scroll the table sideways for every metric."), filters, gap(2))
+	copyAll.Importance = widget.HighImportance
+	bottom := container.NewVBox(gap(2), container.NewGridWithColumns(3, copySelected, copyAll, details), container.NewGridWithColumns(3, csv, js, copyJSON))
+	if u.Mobile {
+		bottom = container.NewVBox(gap(2), container.NewGridWithColumns(2, copySelected, copyAll), details, container.NewGridWithColumns(2, csv, js), copyJSON)
+	}
+	return container.New(layout.NewCustomPaddedLayout(10, 12, 14, 14), cardFill(top, bottom, u.Table))
 }
 
 func (u *UI) refreshResults() {
@@ -1136,7 +1178,8 @@ func (u *UI) activityTab() fyne.CanvasObject {
 		u.Status.SetText("Opened " + filepath.Base(path))
 	})
 	refresh := widget.NewButtonWithIcon("Refresh", theme.ViewRefreshIcon(), u.refreshHistory)
-	history := container.NewBorder(container.NewVBox(heading("Saved scans"), wrapped("Final and intermediate results stay in the application data folder.")), container.NewGridWithColumns(2, open, refresh), nil, nil, u.History)
+	open.Importance = widget.HighImportance
+	history := cardFill(container.NewVBox(sectionTitle("Saved scans"), muted("Final and intermediate results stay in the application data folder."), gap(2)), container.NewVBox(gap(2), container.NewGridWithColumns(2, open, refresh)), u.History)
 	u.Log = widget.NewMultiLineEntry()
 	u.Log.Wrapping = fyne.TextWrapWord
 	u.Log.SetPlaceHolder("Scan and optimizer events appear here.")
@@ -1158,8 +1201,9 @@ func (u *UI) activityTab() fyne.CanvasObject {
 	if u.Mobile {
 		logActions = container.NewVBox(copyLog, copyDebug)
 	}
-	log := container.NewBorder(container.NewVBox(heading("Run log"), wrapped("Recent 300 events are shown; the full log is saved privately.")), logActions, nil, nil, u.Log)
-	tabs := container.NewAppTabs(container.NewTabItem("History", container.NewPadded(history)), container.NewTabItem("Log", container.NewPadded(log)))
+	log := cardFill(container.NewVBox(sectionTitle("Run log"), muted("Recent 300 events are shown; the full log is saved privately."), gap(2)), container.NewVBox(gap(2), logActions), u.Log)
+	pad := func(o fyne.CanvasObject) fyne.CanvasObject { return container.New(layout.NewCustomPaddedLayout(8, 12, 14, 14), o) }
+	tabs := container.NewAppTabs(container.NewTabItemWithIcon("History", theme.HistoryIcon(), pad(history)), container.NewTabItemWithIcon("Log", theme.DocumentIcon(), pad(log)))
 	return tabs
 }
 
