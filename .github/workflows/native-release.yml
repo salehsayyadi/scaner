@@ -6,6 +6,7 @@ on:
     # Release verification/Android completion of an existing tag must not
     # reserve a new version or rebuild Windows.
     paths-ignore:
+      - .github/workflows/secure-beta-announcement.yml
       - README.md
       - .github/workflows/announce-private-beta.yml
       - .github/workflows/native-release.yml

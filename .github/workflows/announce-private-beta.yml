@@ -86,13 +86,14 @@ jobs:
 
           راهنمای کامل توکن، نگاشت، محدودیت‌ها و تنظیمات در [README عمومی](https://github.com/salehsayyadi/scaner#readme) آمده است. نسخه پایدار عمومی **5.6.4** همچنان از Releases قبلی قابل دریافت است.
 
-          **توجه:** لینک‌های خودکار Source code پایین این اطلاعیه، سورس عمومی پایدار را نشان می‌دهند؛ سورس قابلیت بتا نیستند. هیچ فایل اجرایی بتا در این Release عمومی پیوست نشده است.
+          **توجه:** لینک‌های خودکار Source code فقط یک README معرفی را دانلود می‌کنند؛ هیچ سورس برنامه یا فایل اجرایی در آرشیو این اطلاعیه نیست. کد نسخه‌های عمومی قبلی در شاخه عمومی مخزن باقی مانده است؛ کد بتا خصوصی است.
           EOF
           tag=v6.6.4-beta-announcement
           if gh release view "$tag" >/dev/null 2>&1; then
             gh release edit "$tag" --prerelease --title 'Scaner 6.6.4 — Private beta announcement only' --notes-file beta-announcement.md
           else
-            gh release create "$tag" --prerelease --target "$(git rev-parse HEAD)" --title 'Scaner 6.6.4 — Private beta announcement only' --notes-file beta-announcement.md
+            echo "Announcement tag must first be secured by secure-beta-announcement.yml"
+            exit 1
           fi
       - name: Record cleanup and announcement status
         env:

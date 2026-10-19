@@ -1,0 +1,34 @@
+name: Secure beta announcement archives
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/secure-beta-announcement.yml]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  secure:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const {owner,repo}=context.repo;
+            if(owner!=='salehsayyadi'||repo!=='scaner') throw new Error('Wrong repository');
+            const tag='v6.6.4-beta-announcement';
+            const notice='# Scaner 6.6.4 — Private beta announcement only\n\nThis archive contains documentation only. No application source or executable is included.\n\nبتای 6.6.4 عمومی نشده است. این آرشیو فقط معرفی است و کد برنامه ندارد.\n\nAuthorized testers: https://github.com/salehsayyadi/scaner-beta/releases/tag/v6.6.4\n\nEarlier public versions remain in the public repository; beta implementation is private.\n';
+            const blob=await github.rest.git.createBlob({owner,repo,content:Buffer.from(notice).toString('base64'),encoding:'base64'});
+            const tree=await github.rest.git.createTree({owner,repo,tree:[{path:'README.md',mode:'100644',type:'blob',sha:blob.data.sha}]});
+            const commit=await github.rest.git.createCommit({owner,repo,message:'docs: isolated beta announcement, no program source',tree:tree.data.sha,parents:[]});
+            await github.rest.git.updateRef({owner,repo,ref:'tags/'+tag,sha:commit.data.sha,force:true});
+            const checked=await github.rest.git.getTree({owner,repo,tree_sha:tree.data.sha,recursive:'1'});
+            if(checked.data.tree.length!==1||checked.data.tree[0].path!=='README.md') throw new Error('Unexpected archive contents');
+            const rel=(await github.rest.repos.getReleaseByTag({owner,repo,tag})).data;
+            let body=rel.body||'';
+            body=body.replace(/\*\*توجه:\*\*[\s\S]*$/,'');
+            body+='\n\n**آرشیو بدون کد:** دکمه‌های خودکار Source code در پایین فقط یک README معرفی دارند؛ هیچ فایل Go، کد برنامه یا فایل اجرایی داخل این آرشیو نیست. کد بتای 6.6.4 فقط در مخزن خصوصی است. کد نسخه‌های عمومی قبلی در مخزن عمومی باقی مانده است.\n';
+            body+='\n[دانلود نصب‌کننده خصوصی ویندوز 6.6.4](https://github.com/salehsayyadi/scaner-beta/releases/download/v6.6.4/Scaner-Setup-6.6.4.exe) · [پورتابل خصوصی](https://github.com/salehsayyadi/scaner-beta/releases/download/v6.6.4/Scaner-6.6.4-windows-amd64-PORTABLE.exe)\n';
+            await github.rest.repos.updateRelease({owner,repo,release_id:rel.id,body,prerelease:true});
+            const path='.github/beta-archive-status.json';
+            let sha;try{sha=(await github.rest.repos.getContent({owner,repo,path,ref:'main'})).data.sha;}catch(e){if(e.status!==404)throw e;}
+            await github.rest.repos.createOrUpdateFileContents({owner,repo,path,branch:'main',sha,message:'docs: confirm announcement archive contains no program source [skip ci]',content:Buffer.from(JSON.stringify({tag,commit:commit.data.sha,tree:tree.data.sha,files:['README.md'],source_code_included:false},null,2)+'\n').toString('base64')});
