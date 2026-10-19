@@ -64,7 +64,7 @@ jobs:
         with:
           go-version: '1.25.6'
       - name: Original engine, native controls, persistence and cancellation tests
-        run: go test -tags ci -ldflags=-checklinkname=0 ./...
+        run: go test -p 1 -tags ci -ldflags=-checklinkname=0 ./...
       - name: Version automation tests
         run: python -m unittest discover -s tools -p 'test_*.py'
       - name: Check rootless Android engine compatibility
@@ -87,7 +87,9 @@ jobs:
       - name: Verify Windows interface binding and real local VLESS traffic
         env:
           CGO_ENABLED: '0'
-        run: go test -tags ci -ldflags=-checklinkname=0 ./netroute ./config ./scanner ./xray ./appcore
+        # Integration packages each start an embedded server from port 10000.
+        # Serialize packages so separate test processes cannot bind that port together.
+        run: go test -p 1 -tags ci -ldflags=-checklinkname=0 ./netroute ./config ./scanner ./xray ./appcore
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
