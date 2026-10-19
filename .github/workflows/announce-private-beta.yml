@@ -7,6 +7,7 @@ on:
 permissions:
   contents: write
   pages: write
+  id-token: write
 concurrency:
   group: private-beta-announcement
   cancel-in-progress: false
@@ -14,6 +15,8 @@ jobs:
   announce:
     if: github.repository == 'salehsayyadi/scaner'
     runs-on: ubuntu-latest
+    environment:
+      name: github-pages
     steps:
       - uses: actions/checkout@v4
         with:
@@ -107,3 +110,11 @@ jobs:
             git commit -m 'chore: record beta announcement and preview retirement [skip ci]'
             git push origin HEAD:main
           fi
+      - name: Replace any still-hosted preview with a 404-only site
+        run: |
+          mkdir -p "$RUNNER_TEMP/retired-pages"
+          printf '<!doctype html><html lang="fa"><meta charset="utf-8"><title>404 — Preview removed</title><p>پیش‌نمایش وب در نسخه 6.6.4 حذف شده است.</p></html>' > "$RUNNER_TEMP/retired-pages/404.html"
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: ${{ runner.temp }}/retired-pages
+      - uses: actions/deploy-pages@v4
