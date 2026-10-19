@@ -1,14 +1,7 @@
 {
   "pages": "failed",
   "pages_error": "gh: Resource not accessible by integration (HTTP 403)\n",
-  "removed_assets": [
-    "v5.6.4/Scaner-5.6.4-web-preview.html",
-    "v5.6.4/WEB-PREVIEW-FONT-LICENSE.txt",
-    "v5.6.4/WEB-PREVIEW-LINK.txt",
-    "v4.6.4/Scaner-4.6.4-web-preview.html",
-    "v4.6.4/WEB-PREVIEW-FONT-LICENSE.txt",
-    "v4.6.4/WEB-PREVIEW-LINK.txt"
-  ],
+  "removed_assets": [],
   "announcement": "https://github.com/salehsayyadi/scaner/releases/tag/v6.6.4-beta-announcement",
-  "run_url": "https://github.com/salehsayyadi/scaner/actions/runs/39279008607"
+  "run_url": "https://github.com/salehsayyadi/scaner/actions/runs/39279533806"
 }
