@@ -1,0 +1,9 @@
+{
+  "tag": "v6.6.4-beta-announcement",
+  "commit": "4f57369c129fbb9545f1e3dbc25c28fcda550cfe",
+  "tree": "db405ded92b70c274ccbca0724a4ce455eea91dd",
+  "files": [
+    "README.md"
+  ],
+  "source_code_included": false
+}
