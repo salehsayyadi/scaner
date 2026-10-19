@@ -17,15 +17,16 @@ import (
 
 // Result represents the scan result for a single IP
 type Result struct {
-	IP         string        `json:"ip"`
-	Range      string        `json:"range,omitempty"`
-	Success    bool          `json:"success"`
-	Connected  bool          `json:"connected,omitempty"` // Xray worked, even when a quality filter rejected the IP
-	Latency    time.Duration `json:"latency"`
-	LatencyMs  int64         `json:"latency_ms"`
-	StatusCode int           `json:"status_code,omitempty"`
-	Error      string        `json:"error,omitempty"`
-	TestedAt   time.Time     `json:"tested_at"`
+	TestInterface string        `json:"test_interface,omitempty"`
+	IP            string        `json:"ip"`
+	Range         string        `json:"range,omitempty"`
+	Success       bool          `json:"success"`
+	Connected     bool          `json:"connected,omitempty"` // Xray worked, even when a quality filter rejected the IP
+	Latency       time.Duration `json:"latency"`
+	LatencyMs     int64         `json:"latency_ms"`
+	StatusCode    int           `json:"status_code,omitempty"`
+	Error         string        `json:"error,omitempty"`
+	TestedAt      time.Time     `json:"tested_at"`
 
 	// Quality metrics from the warm sample loop
 	AvgLatencyMs int64   `json:"avg_latency_ms,omitempty"`
@@ -170,7 +171,7 @@ func (rc *ResultCollector) SaveToCSV(path string) error {
 	writer := csv.NewWriter(file)
 	defer writer.Flush()
 
-	header := []string{"IP", "Ping (ms)", "TCP (ms)", "Handshake (ms)", "Jitter (ms)", "Loss (%)", "Upload (Mbps)", "Download (Mbps)", "Status", "Tested At"}
+	header := []string{"IP", "Ping (ms)", "TCP (ms)", "Handshake (ms)", "Jitter (ms)", "Loss (%)", "Upload (Mbps)", "Download (Mbps)", "Status", "Tested At", "Range", "Test interface"}
 	if err := writer.Write(header); err != nil {
 		return fmt.Errorf("failed to write header: %w", err)
 	}
@@ -196,7 +197,7 @@ func (rc *ResultCollector) SaveToCSV(path string) error {
 			fmt.Sprintf("%.2f", r.UploadMbps),
 			fmt.Sprintf("%.2f", r.DownloadMbps),
 			status,
-			r.TestedAt.Format(time.RFC3339),
+			r.TestedAt.Format(time.RFC3339), r.Range, r.TestInterface,
 		}
 		if err := writer.Write(row); err != nil {
 			return fmt.Errorf("failed to write row: %w", err)
@@ -301,6 +302,7 @@ func LoadResultsCSV(path string) ([]Result, error) {
 		res.Connected = res.Success || strings.EqualFold(col(row, "connected"), "true")
 		res.Error = col(row, "error")
 		res.Range = col(row, "range")
+		res.TestInterface = col(row, "test interface")
 		if ts := col(row, "tested at"); ts != "" {
 			res.TestedAt, _ = time.Parse(time.RFC3339, ts)
 		}

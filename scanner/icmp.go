@@ -91,6 +91,9 @@ func (s *ICMPScanner) Run() error {
 
 	// Detect ping mode (ICMP needs root, falls back to TCP)
 	pingMode := utils.PingModeString()
+	if s.cfg.Network.Interface != "" {
+		pingMode = "TCP / " + s.cfg.Network.Interface
+	}
 
 	fmt.Printf("%s%sConnectivity Scan%s (%s%s%s)\n", utils.Bold, utils.Cyan, utils.Reset, utils.Yellow, pingMode, utils.Reset)
 	fmt.Printf("   %sIPs:%s %d  %sWorkers:%s %d  %sTimeout:%s %v  %sRetries:%s %d\n\n",
@@ -225,9 +228,15 @@ func (s *ICMPScanner) processIP(ip string, processed *atomic.Int64, logger chan<
 	default:
 	}
 
-	result := utils.PingWithRetries(ip, timeout, retries)
+	var result utils.PingResult
+	for n := 0; n < retries; n++ {
+		result = utils.PingOnInterface(s.ctx, s.cfg.Network.Interface, ip, timeout)
+		if result.Success || s.ctx.Err() != nil {
+			break
+		}
+	}
 
-	scanResult := Result{
+	scanResult := Result{TestInterface: s.cfg.Network.Interface,
 		IP:      ip,
 		Success: result.Success,
 		Latency: result.Latency,

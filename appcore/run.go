@@ -11,6 +11,7 @@ import (
 
 	"piyazche/applog"
 	"piyazche/config"
+	"piyazche/netroute"
 	"piyazche/optimizer"
 	"piyazche/scanner"
 	"piyazche/utils"
@@ -94,6 +95,9 @@ func NewRunWithSource(parent context.Context, cfg *config.Config, ranges, mode, 
 		return nil, fmt.Errorf("unknown scan mode: %s", mode)
 	}
 	c := cfg.Clone()
+	if err := netroute.Validate(c.Network.Interface); err != nil {
+		return nil, err
+	}
 	if mode != ModeConnectivity {
 		if err := c.Validate(); err != nil {
 			return nil, err
@@ -251,7 +255,7 @@ func (r *Run) Execute() error {
 	if err := r.ctx.Err(); err != nil {
 		return err
 	}
-	applog.Logf("start mode=%s source=%s IPs=%d workers=%d", r.Mode, r.Source, len(r.IPs), r.Config.Scan.Threads)
+	applog.Logf("start mode=%s source=%s IPs=%d workers=%d test_interface=%q (empty=system route)", r.Mode, r.Source, len(r.IPs), r.Config.Scan.Threads, r.Config.Network.Interface)
 	for _, rs := range r.ranges {
 		applog.Logf("range %s hosts=%d queued=%d", rs.Label(), rs.Hosts, rs.Queued)
 	}
@@ -301,7 +305,7 @@ func (r *Run) check() error {
 		return err
 	}
 	v := xray.TestConnectivityWithContext(r.ctx, port, r.Config.Scan.TestURL, r.Config.GetTimeout())
-	result := scanner.Result{IP: r.IPs[0], Success: v.Success, Connected: v.Success, Latency: v.Latency, StatusCode: v.StatusCode}
+	result := scanner.Result{TestInterface: r.Config.Network.Interface, IP: r.IPs[0], Success: v.Success, Connected: v.Success, Latency: v.Latency, StatusCode: v.StatusCode}
 	if v.Error != nil {
 		result.Error = v.Error.Error()
 	}
@@ -347,7 +351,7 @@ func (r *Run) connectivity() error {
 				r.setActive(ip, true)
 				var v utils.PingResult
 				for n := 0; n < tries && r.ctx.Err() == nil; n++ {
-					v = utils.Ping(ip, pingTimeout)
+					v = utils.PingOnInterface(r.ctx, r.Config.Network.Interface, ip, pingTimeout)
 					if v.Success {
 						break
 					}
@@ -356,7 +360,7 @@ func (r *Run) connectivity() error {
 				if r.ctx.Err() != nil {
 					return
 				}
-				result := scanner.Result{IP: ip, Success: v.Success, Latency: v.Latency}
+				result := scanner.Result{TestInterface: r.Config.Network.Interface, IP: ip, Success: v.Success, Latency: v.Latency}
 				if v.Error != nil {
 					result.Error = v.Error.Error()
 				}
@@ -364,7 +368,7 @@ func (r *Run) connectivity() error {
 					result.Success = false
 					result.Error = "latency exceeds the configured maximum"
 				}
-				if utils.GetPingMode() == utils.PingModeTCP {
+				if r.Config.Network.Interface != "" || utils.GetPingMode() == utils.PingModeTCP {
 					result.TCPOK, result.TCPMs = v.Success, v.Latency.Milliseconds()
 				}
 				r.Results.Add(result)
@@ -387,6 +391,9 @@ feed:
 
 func Optimize(ctx context.Context, cfg *config.Config, target string, debug bool) (*optimizer.ZoneResult, error) {
 	c := cfg.Clone()
+	if err := netroute.Validate(c.Network.Interface); err != nil {
+		return nil, err
+	}
 	if err := c.Validate(); err != nil {
 		return nil, err
 	}

@@ -1,8 +1,10 @@
 package utils
 
 import (
+	"context"
 	"fmt"
 	"net"
+	"piyazche/netroute"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -15,9 +17,14 @@ import (
 // working raw TCP connect points at the CDN edge or the fragment/TLS config,
 // not basic reachability.
 func TCPConnect(ip string, port int, timeout time.Duration) (time.Duration, error) {
+	return TCPConnectOnInterface(context.Background(), "", ip, port, timeout)
+}
+func TCPConnectOnInterface(ctx context.Context, iface, ip string, port int, timeout time.Duration) (time.Duration, error) {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
 	addr := net.JoinHostPort(ip, fmt.Sprintf("%d", port))
 	start := time.Now()
-	conn, err := net.DialTimeout("tcp", addr, timeout)
+	conn, err := netroute.DialContext(ctx, iface, "tcp", addr)
 	if err != nil {
 		return 0, err
 	}

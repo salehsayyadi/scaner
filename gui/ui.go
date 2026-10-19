@@ -52,6 +52,9 @@ type UI struct {
 	ConnectionTestStatus                     *widget.Label
 	DebugCheck                               *widget.Check
 	RangePicks                               *rangePicksView
+	NetworkSelect                            *widget.Select
+	NetworkInfo                              *widget.Label
+	networkNames                             map[string]string
 	Status, Summary, Preview, ConnectionInfo *widget.Label
 	Progress                                 *widget.ProgressBar
 	Table                                    *widget.Table
@@ -360,7 +363,7 @@ func (u *UI) settingsTab() fyne.CanvasObject {
 	optimize := card("Fragment optimizer", "Finds working TLS fragment values. Tap again to stop.", u.Optimize)
 	options := card("All options", "", u.settingsFields)
 	misc := card("Debug & saving", "Debug output can contain your connection credentials. Keep it private.", debug, save)
-	return page(appearance, optimize, options, misc)
+	return page(u.networkSettings(), appearance, optimize, options, misc)
 }
 
 // setTheme switches between System / Light / Dark and remembers the choice.
@@ -403,6 +406,7 @@ func (u *UI) setLanguage(l string) {
 }
 
 func (u *UI) rebuildEditor() {
+	u.refreshNetworkChoices()
 	u.Editor = NewEditor(u.Session.Config, func() { u.updatePreview(); u.updateConnectionInfo(); u.autoSave() })
 	u.connectionFields.Objects = []fyne.CanvasObject{u.Editor.Sections["proxy"]}
 	u.connectionFields.Refresh()
@@ -434,6 +438,7 @@ func (u *UI) importConnection() {
 		}
 	}
 	if strings.HasPrefix(strings.ToLower(raw), "vless://") {
+		c.Network = u.Session.Config.Network
 		c.Scan = u.Session.Config.Scan
 		c.Output = u.Session.Config.Output
 		// A share link has no fragment/mux configuration: do not inject saved
@@ -558,9 +563,18 @@ func (u *UI) updatePreview() {
 			s += Tf(" · %d IP(s) per range", cfg.Scan.SampleSize)
 		}
 		if mode == appcore.ModeConnectivity {
-			s += T(" · ping mode: ") + utils.PingModeString() + T(" (ICMP requires privileges).")
+			pingMode := utils.PingModeString()
+			if u.Session.Config.Network.Interface != "" {
+				pingMode = "TCP / " + u.Session.Config.Network.Interface
+			}
+			s += T(" · ping mode: ") + pingMode + T(" (ICMP requires privileges).")
 		}
 	}
+	route := cfg.Network.Interface
+	if route == "" {
+		route = T("Automatic (system route)")
+	}
+	s += "\n" + T("Test network: ") + route
 	u.Preview.SetText(s)
 	if u.Breakdown != nil && u.run == nil {
 		u.lastRun = nil

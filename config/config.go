@@ -11,11 +11,17 @@ import (
 
 // Config represents the main configuration file
 type Config struct {
+	Network  NetworkConfig  `json:"network"`
 	Proxy    ProxyConfig    `json:"proxy"`
 	Fragment FragmentConfig `json:"fragment"`
 	Scan     ScanConfig     `json:"scan"`
 	Output   OutputConfig   `json:"output"`
 	Xray     XrayConfig     `json:"xray"`
+}
+
+// NetworkConfig selects the OS interface for test sockets; empty means system route.
+type NetworkConfig struct {
+	Interface string `json:"interface"`
 }
 
 // XrayConfig represents xray-specific settings

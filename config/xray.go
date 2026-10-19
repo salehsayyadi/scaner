@@ -3,6 +3,7 @@ package config
 import (
 	"encoding/json"
 	"fmt"
+	"piyazche/netroute"
 )
 
 // FragmentSettings represents fragment settings for xray config
@@ -25,6 +26,16 @@ func GenerateXrayConfig(cfg *Config, targetIP string, socksPort int) ([]byte, er
 
 // GenerateXrayConfigWithFragment creates an xray configuration with specific fragment settings
 func GenerateXrayConfigWithFragment(cfg *Config, targetIP string, socksPort int, fragment FragmentSettings) ([]byte, error) {
+	if err := netroute.Validate(cfg.Network.Interface); err != nil {
+		return nil, err
+	}
+	if cfg.Network.Interface != "" && cfg.Proxy.TLS != nil {
+		for _, alpn := range cfg.Proxy.TLS.ALPN {
+			if alpn == "h3" {
+				return nil, fmt.Errorf("manual network selection currently requires TCP/HTTP2 transports; h3/QUIC is not supported")
+			}
+		}
+	}
 	uuid := cfg.Proxy.UUID
 	remarkID := uuid
 	if len(uuid) > 8 {
@@ -238,6 +249,24 @@ func buildOutboundsWithFragment(cfg *Config, targetIP string, fragment FragmentS
 		outbounds = append(outbounds, fragmentOutbound)
 	}
 
+	if cfg.Network.Interface != "" {
+		for _, out := range outbounds {
+			if out["tag"] == "block" {
+				continue
+			}
+			ss, ok := out["streamSettings"].(map[string]interface{})
+			if !ok {
+				ss = map[string]interface{}{}
+				out["streamSettings"] = ss
+			}
+			sock, ok := ss["sockopt"].(map[string]interface{})
+			if !ok {
+				sock = map[string]interface{}{}
+				ss["sockopt"] = sock
+			}
+			sock["interface"] = cfg.Network.Interface
+		}
+	}
 	return outbounds
 }
 

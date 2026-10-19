@@ -3,8 +3,11 @@ package scanner
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"piyazche/netroute"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -18,8 +21,26 @@ import (
 // Real local VLESS server -> SOCKS -> HTTP request, with a deliberately failed
 // advisory TCP probe. No public endpoint, credentials or user's network needed.
 func TestFailedPrecheckStillConfirmsThroughRealVLESS(t *testing.T) {
-	for _, transport := range []string{"tcp", "ws"} {
+	for _, transport := range []string{"tcp", "ws", "tcp-bound", "ws-bound"} {
 		t.Run(transport, func(t *testing.T) {
+			iface := ""
+			if strings.HasSuffix(transport, "-bound") {
+				if !netroute.Supported() {
+					t.Skip("binding unsupported")
+				}
+				adapters, _ := net.Interfaces()
+				for _, a := range adapters {
+					if a.Flags&net.FlagLoopback != 0 {
+						iface = a.Name
+						break
+					}
+				}
+				if iface == "" {
+					t.Fatal("no loopback adapter")
+				}
+				transport = strings.TrimSuffix(transport, "-bound")
+			}
+
 			web := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(204) }))
 			defer web.Close()
 			port := utils.AcquirePort()
@@ -39,6 +60,7 @@ func TestFailedPrecheckStillConfirmsThroughRealVLESS(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			c.Network.Interface = iface
 			c.Scan.TestURL, c.Scan.Timeout = web.URL, 2
 			c.Scan.Retries, c.Scan.PingSamples, c.Scan.LossTest, c.Scan.MaxLatency = 1, 1, false, 0
 			collector := NewResultCollector()

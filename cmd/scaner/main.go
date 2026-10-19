@@ -11,7 +11,7 @@ import (
 	"fyne.io/fyne/v2/app"
 )
 
-var Version = "4.6.4"
+var Version = "5.6.4"
 
 func main() {
 	a := app.NewWithID("com.piyazche.scaner")

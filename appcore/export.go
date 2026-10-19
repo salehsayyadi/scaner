@@ -25,7 +25,7 @@ func EncodeResults(w io.Writer, rows []scanner.Result, format string) error {
 		return fmt.Errorf("unsupported output format %q", format)
 	}
 	c := csv.NewWriter(w)
-	if err := c.Write([]string{"IP", "Ping (ms)", "TCP (ms)", "Handshake (ms)", "Jitter (ms)", "Loss (%)", "Upload (Mbps)", "Download (Mbps)", "Status", "Tested At", "Connected", "Error", "Range"}); err != nil {
+	if err := c.Write([]string{"IP", "Ping (ms)", "TCP (ms)", "Handshake (ms)", "Jitter (ms)", "Loss (%)", "Upload (Mbps)", "Download (Mbps)", "Status", "Tested At", "Connected", "Error", "Range", "Test interface"}); err != nil {
 		return err
 	}
 	for _, r := range rows {
@@ -43,7 +43,7 @@ func EncodeResults(w io.Writer, rows []scanner.Result, format string) error {
 		if r.Success {
 			status = "success"
 		}
-		if err := c.Write([]string{r.IP, fmt.Sprint(r.LatencyMs), tcp, fmt.Sprint(r.HandshakeMs), fmt.Sprint(r.JitterMs), fmt.Sprintf("%.1f", r.LossPercent), up, down, status, r.TestedAt.Format(time.RFC3339), fmt.Sprint(r.Connected), r.Error, r.Range}); err != nil {
+		if err := c.Write([]string{r.IP, fmt.Sprint(r.LatencyMs), tcp, fmt.Sprint(r.HandshakeMs), fmt.Sprint(r.JitterMs), fmt.Sprintf("%.1f", r.LossPercent), up, down, status, r.TestedAt.Format(time.RFC3339), fmt.Sprint(r.Connected), r.Error, r.Range, r.TestInterface}); err != nil {
 			return err
 		}
 	}

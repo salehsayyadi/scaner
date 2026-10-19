@@ -19,6 +19,7 @@ func (s *Session) ResetScan() {
 func (s *Session) ResetSettings() {
 	d := DefaultSession()
 	s.Config.Scan, s.Config.Fragment, s.Config.Output, s.Config.Xray = d.Config.Scan, d.Config.Fragment, d.Config.Output, d.Config.Xray
+	s.Config.Network = d.Config.Network
 	s.Debug = false
 }
 

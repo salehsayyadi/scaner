@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"os"
@@ -194,4 +195,23 @@ func PingWithRetries(targetIP string, timeout time.Duration, retries int) PingRe
 	}
 
 	return lastResult
+}
+
+// Explicit interface mode uses TCP, not an unbound raw-ICMP socket.
+func PingOnInterface(ctx context.Context, iface, target string, timeout time.Duration) PingResult {
+	if iface == "" {
+		return Ping(target, timeout)
+	}
+	var last error
+	for _, port := range []int{443, 80} {
+		lat, e := TCPConnectOnInterface(ctx, iface, target, port, timeout)
+		if e == nil {
+			return PingResult{Success: true, Latency: lat}
+		}
+		last = e
+		if ctx.Err() != nil {
+			break
+		}
+	}
+	return PingResult{Error: last}
 }

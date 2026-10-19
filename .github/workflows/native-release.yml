@@ -84,6 +84,10 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: '1.25.6'
+      - name: Verify Windows interface binding and real local VLESS traffic
+        env:
+          CGO_ENABLED: '0'
+        run: go test -tags ci -ldflags=-checklinkname=0 ./netroute ./config ./scanner ./xray ./appcore
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -223,6 +227,10 @@ jobs:
           printf 'Appearance-only preview (sample data, no scanner or backend):\nhttps://salehsayyadi.github.io/scaner/\n\nIf Pages is not enabled: repository Settings > Pages > Source > GitHub Actions.\nThe self-contained HTML asset also opens locally without installation.\n' > dist/WEB-PREVIEW-LINK.txt
           cat > release-notes.md <<EOF
           ## Scaner $VERSION
+          - **انتخاب اینترنت تست:** اولین بخش Settings؛ انتخاب Wi-Fi/Ethernet یا مسیر خودکار. اتصال واقعی تست به کارت انتخاب‌شده در ویندوز و لینوکس دسکتاپ، بدون تغییر تنظیمات سیستم.
+          - در انتخاب دستی، خطای کارت/مجوز باعث برگشت پنهانی به مسیر VPN نمی‌شود. کیل‌سوئیچ یا هدایت اجباری VPN همچنان ممکن است اتصال را مسدود کند؛ تضمین دورزدن VPN نیست.
+          - تست کانفیگ، Xray، سرعت، پیش‌تست TCP و بهینه‌سازی از همان انتخاب استفاده می‌کنند؛ دسترسی‌پذیری دستی TCP است. اندروید فعلاً مسیر خودکار دارد. h3/QUIC در حالت دستی پشتیبانی نمی‌شود.
+          - راهنمای انتخاب اینترنت و محدودیت DNS/VPN در انتهای README تکمیل شده است.
           - **منتخب رنج‌ها:** انتخاب رنج‌ها و نمایش N آی‌پی برتر از هر رنج بر اساس پینگ، دانلود، آپلود یا کیفیت؛ کپی هر آی‌پی/رنج، کپی گروه‌بندی و CSV/JSON از انتخاب‌ها.
           - چیدمان موبایل و دسکتاپ؛ فیلترهای موبایل در پنجره جدا برای حفظ فضای نتایج.
           - **[پیش‌نمایش وب](https://salehsayyadi.github.io/scaner/):** فقط ظاهر با داده نمونه؛ بدون بک‌اند یا اسکن. GitHub Pages باید در تنظیمات مخزن فعال باشد.

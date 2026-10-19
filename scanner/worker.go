@@ -139,7 +139,7 @@ func (w *Worker) processIP(ip string) {
 		maxRetries = 1
 	}
 
-	result := Result{IP: ip}
+	result := Result{IP: ip, TestInterface: w.cfg.Network.Interface}
 	probed := false
 	if usePrecheck(w.cfg) {
 		probed = true
@@ -441,5 +441,5 @@ func (w *Worker) probeTCP(ip string, port int, timeout time.Duration) (time.Dura
 	if w.tcpConnect != nil {
 		return w.tcpConnect(ip, port, timeout)
 	}
-	return utils.TCPConnect(ip, port, timeout)
+	return utils.TCPConnectOnInterface(w.ctx, w.cfg.Network.Interface, ip, port, timeout)
 }

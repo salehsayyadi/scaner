@@ -2,6 +2,20 @@ package gui
 
 // Persian (fa) translations of the UI. Keys are the exact English strings.
 var faStrings = map[string]string{
+	"Test network: ":           "اینترنت تست: ",
+	"Test internet connection": "اینترنت مورد استفاده برای تست",
+	"Choose the adapter used by test traffic, not the VPN route. Automatic follows system routing.": "کارت شبکهٔ تست را انتخاب کنید. حالت خودکار از مسیر سیستم استفاده می‌کند و ممکن است از VPN عبور کند.",
+	"Network adapter":                                     "کارت شبکه",
+	"Refresh network adapters":                            "به‌روزرسانی فهرست کارت‌ها",
+	"Automatic (system route)":                            "خودکار (مسیر سیستم)",
+	"Unavailable adapter":                                 "کارت شبکه در دسترس نیست",
+	"Stop active tests before changing the test network.": "پیش از تغییر اینترنت تست، اسکن یا بهینه‌سازی را متوقف کنید.",
+	"A VPN kill switch or forced interception can still block this path. This does not disable the VPN or change system routes. DNS uses system DNS servers on the selected adapter; VPN-only DNS may fail.": "کیل‌سوئیچ یا هدایت اجباری VPN ممکن است این مسیر را مسدود کند. این انتخاب VPN یا مسیرهای سیستم را تغییر نمی‌دهد. DNS از سرورهای DNS سیستم، روی کارت انتخابی استفاده می‌کند؛ DNS اختصاصی VPN ممکن است جواب ندهد.",
+	"Manual adapter binding is available on Windows and desktop Linux. Android uses the system route.":                                                                                                       "انتخاب دستی کارت شبکه در ویندوز و لینوکس دسکتاپ پشتیبانی می‌شود. اندروید از مسیر سیستم استفاده می‌کند.",
+	"Automatic: tests follow the system route, which may be a VPN. Explicit adapter mode never silently falls back to Automatic.":                                                                            "خودکار: تست‌ها از مسیر سیستم می‌روند و ممکن است از VPN عبور کنند. در انتخاب دستی، خطای کارت شبکه باعث برگشت پنهانی به حالت خودکار نمی‌شود.",
+	"Selected test adapter: ": "کارت شبکهٔ انتخابی: ",
+	" · applies to the next scan, connection test and fragment optimization. Connectivity mode uses TCP on this adapter.": " · برای اسکن بعدی، تست کانفیگ و بهینه‌سازی فرگمنت. حالت دسترسی‌پذیری روی این کارت با TCP تست می‌شود.",
+	"Cannot list network adapters: ":  "دریافت فهرست کارت‌های شبکه ناموفق بود: ",
 	"More actions":                    "عملیات بیشتر",
 	"    %s IPs in range · %s queued": "    %s آی‌پی در رنج · %s در صف",
 	" (ICMP requires privileges).":    " (ICMP نیاز به دسترسی مدیر دارد).",
