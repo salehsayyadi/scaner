@@ -1,0 +1,109 @@
+name: Announce private beta and retire web preview
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/announce-private-beta.yml]
+  workflow_dispatch:
+permissions:
+  contents: write
+  pages: write
+concurrency:
+  group: private-beta-announcement
+  cancel-in-progress: false
+jobs:
+  announce:
+    if: github.repository == 'salehsayyadi/scaner'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Remove retired preview source and deployment workflow
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git rm -r --ignore-unmatch web-preview index.html .github/workflows/deploy-preview.yml
+          if ! git diff --cached --quiet; then
+            git commit -m 'chore: retire appearance-only web preview in 6.6.4 [skip ci]'
+            git push origin HEAD:main
+          fi
+      - name: Unpublish Pages and remove preview attachments, not native downloads
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python - <<'PY'
+          import subprocess,json,pathlib
+          def gh(*args,check=True):
+              return subprocess.run(['gh',*args],text=True,capture_output=True,check=check)
+          repo='salehsayyadi/scaner'
+          result=gh('api','-X','DELETE',f'repos/{repo}/pages',check=False)
+          pages='unpublished' if result.returncode==0 else ('already_absent' if '404' in result.stderr else 'failed')
+          removed=[]
+          releases=json.loads(gh('api',f'repos/{repo}/releases?per_page=100').stdout)
+          for rel in releases:
+              names=[a['name'] for a in rel['assets'] if a['name'].endswith('-web-preview.html') or a['name'] in ('WEB-PREVIEW-LINK.txt','WEB-PREVIEW-FONT-LICENSE.txt')]
+              for name in names:
+                  gh('release','delete-asset',rel['tag_name'],name,'--yes');removed.append(f"{rel['tag_name']}/{name}")
+              if names:
+                  if any(a['name']=='SHA256SUMS.txt' for a in rel['assets']):
+                      gh('release','download',rel['tag_name'],'--pattern','SHA256SUMS.txt','--clobber')
+                      f=pathlib.Path('SHA256SUMS.txt');f.write_text('\n'.join(l for l in f.read_text().splitlines() if not any(n in l for n in names))+'\n')
+                      gh('release','upload',rel['tag_name'],str(f),'--clobber');f.unlink()
+                  lines=[l for l in (rel.get('body') or '').splitlines() if not any(s in l.lower() for s in ['github.io/scaner','web-preview','پیش‌نمایش وب'])]
+                  body='\n'.join(lines)+'\n\nپیش‌نمایش وب در نسخه 6.6.4 حذف شد؛ فایل‌های بومی این نسخه همچنان قابل دریافت‌اند.\n'
+                  pathlib.Path('old-release.md').write_text(body)
+                  gh('release','edit',rel['tag_name'],'--notes-file','old-release.md')
+          pathlib.Path('/tmp/preview-retirement.json').write_text(json.dumps({'pages':pages,'pages_error':result.stderr[-1500:] if pages=='failed' else None,'removed_assets':removed},ensure_ascii=False))
+          if pages=='failed': print('::warning::Pages deletion failed; see status JSON')
+          PY
+      - name: Publish announcement only, never beta files or source
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cat > beta-announcement.md <<'EOF'
+          # Scaner 6.6.4 — PRIVATE BETA / بتای خصوصی
+          **این نسخه هنوز عمومی نشده است. این Release فقط اطلاعیه است؛ فایل اجرایی یا سورس بتا اینجا قرار ندارد.**
+
+          ## دریافت برای مالک و تسترهای دعوت‌شده
+          [مخزن خصوصی scaner-beta](https://github.com/salehsayyadi/scaner-beta) · [دانلود خصوصی 6.6.4](https://github.com/salehsayyadi/scaner-beta/releases/tag/v6.6.4)
+          ابتدا وارد حساب GitHub شوید و دعوت مخزن خصوصی را بپذیرید. بدون دسترسی خطای 404 طبیعی است. فایل‌ها بعد از تکمیل موفق ساخت در Release خصوصی ظاهر می‌شوند؛ وضعیت ساخت داخل همان مخزن است. خصوصی بودن از بازنشر دستی توسط گیرنده جلوگیری نمی‌کند.
+
+          ## قابلیت جدید Cloudflare DNS
+          - منتخب رنج‌ها: انتخاب رنج‌ها، تعداد نتیجه هر رنج و معیار پینگ/دانلود/آپلود/کیفیت؛ نگاشت مستقل نام رکوردها به هر رنج.
+          - مثال شش رنج با دو نتیجه: رنج اول v4-0/v4-1، بعد v4-2/v4-3، تا v4-10/v4-11. دامنه و نام‌های واقعی را خودتان تنظیم می‌کنید.
+          - فعال‌سازی دستی → دامنه و توکن → نام رکوردها → پیش‌نمایش IP قبلی/جدید → تأیید. دقیقاً snapshot نتایج نمایش‌داده‌شده اعمال می‌شود؛ اسکن مجدد یا تغییر خودکار وجود ندارد.
+          - فقط رکورد موجود A/AAAA؛ بدون ایجاد/حذف. TTL و وضعیت Proxy حفظ می‌شود. نبود IP کافی رکورد اضافی را دست‌نخورده می‌گذارد؛ رکورد تغییریافته از زمان پیش‌نمایش کنار گذاشته می‌شود.
+          - API Token محدود به Zone Read و DNS Edit همان Zone؛ نه Global API Key. توکن فقط در حافظه فرم است، نه تنظیمات، خروجی یا لاگ.
+          - عملیات چندرکوردی تراکنشی نیست؛ شکست جزئی و وضعیت نامعلوم شبکه باید در Cloudflare بازبینی شود. ابتدا روی رکورد آزمایشی تست کنید. آزمون خودکار API شبیه‌سازی‌شده است، نه تغییر DNS واقعی کاربر.
+          - برنامه و داده بتا از نسخه پایدار جدا هستند. Windows installer/portable/CLI و Android فقط در Release خصوصی پس از ساخت موفق عرضه می‌شوند. این نسخه بتا است، نه انتشار تولیدی عمومی.
+
+          ## حذف وب در 6.6.4
+          پیش‌نمایش ظاهر وب حذف شده؛ پوشه، workflow و ضمیمه‌های HTML قدیمی کنار گذاشته شدند. این نسخه پنل وب اسکن ندارد. تاریخچه Git قدیمی بازنویسی نمی‌شود.
+
+          راهنمای کامل توکن، نگاشت، محدودیت‌ها و تنظیمات در [README عمومی](https://github.com/salehsayyadi/scaner#readme) آمده است. نسخه پایدار عمومی **5.6.4** همچنان از Releases قبلی قابل دریافت است.
+
+          **توجه:** لینک‌های خودکار Source code پایین این اطلاعیه، سورس عمومی پایدار را نشان می‌دهند؛ سورس قابلیت بتا نیستند. هیچ فایل اجرایی بتا در این Release عمومی پیوست نشده است.
+          EOF
+          tag=v6.6.4-beta-announcement
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release edit "$tag" --prerelease --title 'Scaner 6.6.4 — Private beta announcement only' --notes-file beta-announcement.md
+          else
+            gh release create "$tag" --prerelease --target "$(git rev-parse HEAD)" --title 'Scaner 6.6.4 — Private beta announcement only' --notes-file beta-announcement.md
+          fi
+      - name: Record cleanup and announcement status
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p .github
+          python - <<'PY'
+          import json,pathlib,os
+          data=json.loads(pathlib.Path('/tmp/preview-retirement.json').read_text())
+          data.update(announcement='https://github.com/salehsayyadi/scaner/releases/tag/v6.6.4-beta-announcement',run_url=f'https://github.com/salehsayyadi/scaner/actions/runs/{os.environ["GITHUB_RUN_ID"]}')
+          pathlib.Path('.github/beta-announcement-status.json').write_text(json.dumps(data,indent=2,ensure_ascii=False)+'\n')
+          PY
+          git add .github/beta-announcement-status.json
+          if ! git diff --cached --quiet; then
+            git commit -m 'chore: record beta announcement and preview retirement [skip ci]'
+            git push origin HEAD:main
+          fi

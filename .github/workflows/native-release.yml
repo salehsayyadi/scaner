@@ -6,6 +6,9 @@ on:
     # Release verification/Android completion of an existing tag must not
     # reserve a new version or rebuild Windows.
     paths-ignore:
+      - README.md
+      - .github/workflows/announce-private-beta.yml
+      - .github/workflows/native-release.yml
       - '.github/workflows/verify-and-android.yml'
       - '.github/workflows/deploy-preview.yml'
       - 'web-preview/**'
@@ -224,9 +227,6 @@ jobs:
           ANDROID_RESULT: pending
         run: |
           git archive --format=zip --prefix="scaner-$VERSION/" --output="dist/Scaner-$VERSION-source.zip" HEAD
-          cp web-preview/index.html "dist/Scaner-$VERSION-web-preview.html"
-          cp web-preview/OFL.txt dist/WEB-PREVIEW-FONT-LICENSE.txt
-          printf 'Appearance-only preview (sample data, no scanner or backend):\nhttps://salehsayyadi.github.io/scaner/\n\nIf Pages is not enabled: repository Settings > Pages > Source > GitHub Actions.\nThe self-contained HTML asset also opens locally without installation.\n' > dist/WEB-PREVIEW-LINK.txt
           cat > release-notes.md <<EOF
           ## Scaner $VERSION
           - **انتخاب اینترنت تست:** اولین بخش Settings؛ انتخاب Wi-Fi/Ethernet یا مسیر خودکار. اتصال واقعی تست به کارت انتخاب‌شده در ویندوز و لینوکس دسکتاپ، بدون تغییر تنظیمات سیستم.
@@ -235,8 +235,6 @@ jobs:
           - راهنمای انتخاب اینترنت و محدودیت DNS/VPN در انتهای README تکمیل شده است.
           - **منتخب رنج‌ها:** انتخاب رنج‌ها و نمایش N آی‌پی برتر از هر رنج بر اساس پینگ، دانلود، آپلود یا کیفیت؛ کپی هر آی‌پی/رنج، کپی گروه‌بندی و CSV/JSON از انتخاب‌ها.
           - چیدمان موبایل و دسکتاپ؛ فیلترهای موبایل در پنجره جدا برای حفظ فضای نتایج.
-          - **[پیش‌نمایش وب](https://salehsayyadi.github.io/scaner/):** فقط ظاهر با داده نمونه؛ بدون بک‌اند یا اسکن. GitHub Pages باید در تنظیمات مخزن فعال باشد.
-          - فایل **Scaner-$VERSION-web-preview.html** هم ضمیمه است: یک فایل مستقل برای مشاهده ظاهر در مرورگر، بدون نصب.
           - Windows: download **Scaner-Setup-$VERSION.exe** for installation, or **Scaner-$VERSION-windows-amd64-PORTABLE.exe** for portable use (no installation).
           - The GUI embeds the original Go/Xray engine, assets and range presets. No sidecar DLL, config file or separate Xray executable is required.
           - Command-line (CLI/TUI) version, full source and SHA256 checksums are included.
