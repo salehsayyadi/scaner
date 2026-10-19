@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"piyazche/appcore"
@@ -47,6 +48,9 @@ type UI struct {
 	PerRange                                 *widget.Entry
 	SourceHelp, Breakdown, Current           *widget.Label
 	Start, Pause, Stop, Optimize, Apply      *widget.Button
+	TestConnection                           *widget.Button
+	ConnectionTestStatus                     *widget.Label
+	DebugCheck                               *widget.Check
 	Status, Summary, Preview, ConnectionInfo *widget.Label
 	Progress                                 *widget.ProgressBar
 	Table                                    *widget.Table
@@ -76,6 +80,7 @@ type UI struct {
 	runStamp                                 string
 	lastSave                                 time.Time
 	saveMu                                   sync.Mutex
+	saveGeneration                           atomic.Uint64
 	loading                                  bool
 	lastLog                                  string
 	lastLogGen                               uint64
@@ -236,7 +241,7 @@ func (u *UI) scanTab() fyne.CanvasObject {
 		u.readFile(func(text string) { u.Source.SetText(text) }, ".txt", ".csv")
 	})
 	copyRanges := widget.NewButtonWithIcon(T("Copy"), theme.ContentCopyIcon(), func() { u.App.Clipboard().SetContent(u.Source.Text); u.Status.SetText(T("Ranges copied.")) })
-	clearRanges := widget.NewButtonWithIcon(T("Clear"), theme.ContentClearIcon(), func() { u.Source.SetText(T("")) })
+	clearRanges := widget.NewButtonWithIcon(T("Reset scan"), theme.ContentClearIcon(), func() { u.confirmReset("scan") })
 	settings := widget.NewButtonWithIcon(T("Scan settings"), theme.SettingsIcon(), func() { u.Tabs.SelectIndex(2) })
 
 	modeCard := card("Scan mode", "Connection test puts each IP into your config and really connects.",
@@ -298,36 +303,25 @@ func (u *UI) connectionTab() fyne.CanvasObject {
 		u.App.Clipboard().SetContent(string(b))
 		u.Status.SetText(T("Full configuration copied · it may contain private credentials."))
 	})
-	reset := widget.NewButtonWithIcon(T("Clear connection"), theme.DeleteIcon(), func() {
-		dialog.ShowConfirm(T("Clear connection"), T("Remove the saved connection (address, UUID, SNI…)? Scan settings are kept."), func(ok bool) {
-			if !ok {
-				return
-			}
-			c := config.DefaultConfig()
-			c.Scan, c.Output, c.Xray, c.Fragment = u.Session.Config.Scan, u.Session.Config.Output, u.Session.Config.Xray, u.Session.Config.Fragment
-			u.Session.Config = c
-			u.ImportText.SetText(T(""))
-			u.rebuildEditor()
-			u.updateConnectionInfo()
-			u.autoSave()
-			u.Status.SetText(T("Connection cleared."))
-		}, u.Window)
+	reset := widget.NewButtonWithIcon(T("Reset connection"), theme.DeleteIcon(), func() {
+		u.confirmReset("connection")
 	})
 	reset.Importance = widget.DangerImportance
 	connButtons := fyne.CanvasObject(container.NewGridWithColumns(3, open, copyConfig, reset))
 	if u.Mobile {
 		copyConfig.SetText(T("Copy config"))
-		reset.SetText(T("Clear"))
+		reset.SetText(T("Reset"))
 		connButtons = container.NewVBox(container.NewGridWithColumns(2, open, copyConfig), reset)
 	}
 	importCard := card("Your connection", "vless:// link, Xray JSON, app JSON or Base64 subscription. Stays on this device.",
-		u.ImportText, parse, connButtons)
+		u.ImportText, muted("Apply a pasted link before testing. The test uses the connection details below, not scan targets or quality limits."), container.NewGridWithColumns(2, parse, u.connectionTestButton()), u.ConnectionTestStatus, connButtons)
 	details := card("Connection details", "", u.connectionFields)
 	return page(importCard, details)
 }
 
 func (u *UI) settingsTab() fyne.CanvasObject {
 	debug := widget.NewCheck(T("Save Xray debug config"), nil)
+	u.DebugCheck = debug
 	debug.SetChecked(u.Session.Debug)
 	debug.OnChanged = func(v bool) { u.Session.Debug = v; u.autoSave() }
 	save := widget.NewButtonWithIcon(T("Save settings"), theme.DocumentSaveIcon(), func() {
@@ -352,7 +346,7 @@ func (u *UI) settingsTab() fyne.CanvasObject {
 	u.LangSelect.OnChanged = func(v string) {
 		u.setLanguage(map[string]string{"English": LangEnglish, "فارسی": LangPersian}[v])
 	}
-	appearance := card("Appearance", "", container.NewGridWithColumns(2, labeled("Theme", u.ThemeSelect), labeled("Language", u.LangSelect)))
+	appearance := card("Appearance", "", container.NewGridWithColumns(2, labeled("Theme", u.ThemeSelect), labeled("Language", u.LangSelect)), widget.NewButtonWithIcon(T("Reset"), theme.ViewRefreshIcon(), u.chooseSettingsReset))
 	optimize := card("Fragment optimizer", "Finds working TLS fragment values. Tap again to stop.", u.Optimize)
 	options := card("All options", "", u.settingsFields)
 	misc := card("Debug & saving", "Debug output can contain your connection credentials. Keep it private.", debug, save)
@@ -432,8 +426,8 @@ func (u *UI) importConnection() {
 	if strings.HasPrefix(strings.ToLower(raw), "vless://") {
 		c.Scan = u.Session.Config.Scan
 		c.Output = u.Session.Config.Output
-		c.Xray = u.Session.Config.Xray
-		c.Fragment = u.Session.Config.Fragment
+		// A share link has no fragment/mux configuration: do not inject saved
+		// connection modifiers. Re-enable them explicitly after import if needed.
 	}
 	u.Session.Config = c
 	u.rebuildEditor()
@@ -641,7 +635,9 @@ func (u *UI) start() {
 	u.startNow()
 }
 
-func (u *UI) startNow() {
+func (u *UI) startNow() { u.startMode(u.mode()) }
+
+func (u *UI) startMode(mode string) {
 	if u.run != nil {
 		return
 	}
@@ -651,7 +647,7 @@ func (u *UI) startNow() {
 		return
 	}
 	start := func() {
-		r, err := appcore.NewRunWithSource(u.ctx, cfg, u.Source.Text, u.mode(), u.Session.Source, u.Session.Debug)
+		r, err := appcore.NewRunWithSource(u.ctx, cfg, u.Source.Text, mode, u.Session.Source, u.Session.Debug)
 		if err != nil {
 			u.showError(err)
 			return
@@ -664,6 +660,12 @@ func (u *UI) startNow() {
 		u.lastSave = time.Now()
 		stamp := u.runStamp
 		u.Start.Disable()
+		u.TestConnection.Disable()
+		if r.Mode == appcore.ModeCheck {
+			u.TestConnection.SetText(T("Stop connection test"))
+			u.TestConnection.Enable()
+			u.ConnectionTestStatus.SetText(T("Testing applied connection…"))
+		}
 		u.Pause.Enable()
 		if r.Mode == appcore.ModeCheck {
 			u.Pause.Disable()
@@ -689,6 +691,8 @@ func (u *UI) startNow() {
 				}
 				u.run = nil
 				u.Start.Enable()
+				u.TestConnection.SetText(T("Test connection"))
+				u.TestConnection.Enable()
 				u.Pause.Disable()
 				u.Stop.Disable()
 				done, total := r.Progress()
@@ -709,6 +713,21 @@ func (u *UI) startNow() {
 					message += " · " + filepath.Base(path)
 				}
 				u.Status.SetText(message)
+				if r.Mode == appcore.ModeCheck {
+					status := T("Connection test failed.")
+					if errors.Is(err, context.Canceled) {
+						status = T("Connection test stopped.")
+					} else if err != nil {
+						status += " " + err.Error()
+					} else if r.Results.SuccessCount() > 0 {
+						status = T("Connection works through Xray.")
+					} else {
+						for _, v := range r.Results.GetResults() {
+							status += " " + v.Error
+						}
+					}
+					u.ConnectionTestStatus.SetText(status)
+				}
 				applog.Logf("%s", message)
 				u.refreshHistory()
 			})
@@ -722,7 +741,7 @@ func (u *UI) startNow() {
 	if cfg.Scan.MaxIPs > 0 && n > cfg.Scan.MaxIPs {
 		n = cfg.Scan.MaxIPs
 	}
-	if n > 250000 && u.mode() != appcore.ModeCheck {
+	if n > 250000 && mode != appcore.ModeCheck {
 		dialog.NewConfirm(T("Large scan"), Tf("This queues %s IPs and can use substantial memory and data. Continue, or reduce IPs per range or Maximum IPs?", comma(n)), func(ok bool) {
 			if ok {
 				start()
@@ -843,11 +862,15 @@ func (u *UI) StartRefresh() {
 						if r.Config.Output.SaveIntermediateResults && time.Since(u.lastSave) > every {
 							u.lastSave = time.Now()
 							stamp := u.runStamp
+							generation := u.saveGeneration.Load()
 							go func() {
 								if !u.saveMu.TryLock() {
 									return // previous save still running
 								}
 								defer u.saveMu.Unlock()
+								if generation != u.saveGeneration.Load() {
+									return
+								}
 								if _, err := appcore.SaveResults(u.DataDir, r.Config, r.Results, stamp); err != nil {
 									applog.Logf("intermediate save failed: %v", err)
 								}
@@ -1085,6 +1108,8 @@ func (u *UI) resultsTab() fyne.CanvasObject {
 			values := []string{r.IP, T("Failed"), fmt.Sprint(r.LatencyMs), "-", fmt.Sprint(r.HandshakeMs), fmt.Sprint(r.JitterMs), fmt.Sprintf("%.1f", r.LossPercent), "-", "-"}
 			if r.Success {
 				values[1] = T("Good")
+			} else if r.Connected {
+				values[1] = T("Below limits")
 			}
 			if r.TCPOK {
 				values[3] = fmt.Sprint(r.TCPMs)
@@ -1119,6 +1144,9 @@ func (u *UI) resultsTab() fyne.CanvasObject {
 		}
 		if id.Row > 0 && id.Row <= len(u.rows) {
 			u.selected = u.rows[id.Row-1].IP
+			if e := u.rows[id.Row-1].Error; e != "" {
+				u.Status.SetText(e)
+			}
 		}
 	}
 	copySelected := widget.NewButtonWithIcon(T("Copy IP"), theme.ContentCopyIcon(), u.copySelected)
@@ -1158,9 +1186,10 @@ func (u *UI) resultsTab() fyne.CanvasObject {
 	}
 	top := container.NewVBox(sectionTitle("Live results"), muted("Tap a column title to sort; tap it again to reverse."), filters, gap(2))
 	copyAll.Importance = widget.HighImportance
-	bottom := container.NewVBox(gap(2), container.NewGridWithColumns(3, copySelected, copyAll, details), container.NewGridWithColumns(3, csv, js, copyJSON))
+	reset := widget.NewButtonWithIcon(T("Reset results"), theme.ViewRefreshIcon(), func() { u.confirmReset("results") })
+	bottom := container.NewVBox(reset, gap(2), container.NewGridWithColumns(3, copySelected, copyAll, details), container.NewGridWithColumns(3, csv, js, copyJSON))
 	if u.Mobile {
-		bottom = container.NewVBox(gap(2), container.NewGridWithColumns(2, copySelected, copyAll), details, container.NewGridWithColumns(2, csv, js), copyJSON)
+		bottom = container.NewVBox(reset, gap(2), container.NewGridWithColumns(2, copySelected, copyAll), details, container.NewGridWithColumns(2, csv, js), copyJSON)
 	}
 	return container.New(layout.NewCustomPaddedLayout(10, 12, 14, 14), cardFill(top, bottom, u.Table))
 }
@@ -1395,7 +1424,7 @@ func (u *UI) activityTab() fyne.CanvasObject {
 	})
 	refresh := widget.NewButtonWithIcon(T("Refresh"), theme.ViewRefreshIcon(), u.refreshHistory)
 	open.Importance = widget.HighImportance
-	history := cardFill(container.NewVBox(sectionTitle("Saved scans"), muted("Final and intermediate results stay in the application data folder."), gap(2)), container.NewVBox(gap(2), container.NewGridWithColumns(2, open, refresh)), u.History)
+	history := cardFill(container.NewVBox(sectionTitle("Saved scans"), muted("Final and intermediate results stay in the application data folder."), gap(2)), container.NewVBox(gap(2), container.NewGridWithColumns(3, open, refresh, widget.NewButton(T("Reset history"), func() { u.confirmReset("history") }))), u.History)
 	u.Log = widget.NewMultiLineEntry()
 	u.Log.Wrapping = fyne.TextWrapWord
 	u.Log.SetPlaceHolder(T("Scan and optimizer events appear here."))
@@ -1413,9 +1442,10 @@ func (u *UI) activityTab() fyne.CanvasObject {
 		u.App.Clipboard().SetContent(string(b))
 		u.Status.SetText(T("Debug JSON copied · it can contain connection credentials."))
 	})
-	logActions := container.NewGridWithColumns(2, copyLog, copyDebug)
+	resetLog := widget.NewButton(T("Reset log"), func() { u.confirmReset("log") })
+	logActions := container.NewGridWithColumns(3, copyLog, copyDebug, resetLog)
 	if u.Mobile {
-		logActions = container.NewVBox(copyLog, copyDebug)
+		logActions = container.NewVBox(copyLog, copyDebug, resetLog)
 	}
 	log := cardFill(container.NewVBox(sectionTitle("Run log"), muted("Recent 300 events are shown; the full log is saved privately."), gap(2)), container.NewVBox(gap(2), logActions), u.Log)
 	pad := func(o fyne.CanvasObject) fyne.CanvasObject {

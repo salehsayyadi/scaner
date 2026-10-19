@@ -88,7 +88,7 @@ func (e *Editor) changed() {
 }
 
 var choices = map[string][]string{
-	"proxy.method":             {"tls", "reality"},
+	"proxy.method":             {"tls", "reality", "none"},
 	"proxy.type":               {"ws", "xhttp", "grpc", "tcp", "httpupgrade"},
 	"fragment.mode":            {"manual", "auto", "off"},
 	"output.format":            {"csv", "json"},
@@ -175,9 +175,9 @@ func (e *Editor) control(v reflect.Value, path string) fyne.CanvasObject {
 
 func friendly(s string) string {
 	known := map[string]string{
-		"uuid": "VLESS UUID", "sni": "SNI", "alpn": "ALPN (comma-separated)", "ws": "WebSocket / HTTP upgrade", "grpc": "gRPC", "xhttp": "XHTTP", "tls": "TLS", "reality": "Reality",
+		"uuid": "VLESS UUID", "flow": "VLESS flow (keep the link value)", "sni": "SNI", "alpn": "ALPN (comma-separated)", "ws": "WebSocket / HTTP upgrade", "grpc": "gRPC", "xhttp": "XHTTP", "tls": "TLS", "reality": "Reality",
 		"timeout": "Timeout (seconds)", "maxLatency": "Maximum latency (ms)", "maxLoss": "Maximum loss (%) · 0 = no filter", "minUpload": "Minimum upload (Mbps)", "minDownload": "Minimum download (Mbps)",
-		"uploadBytes": "Upload payload (bytes)", "downloadBytes": "Download payload (bytes)", "sampleSize": "IPs per subnet · 0 = all", "tcpPrecheck": "Fast TCP pre-check (skip dead IPs quickly)", "maxIPs": "Maximum IPs · 0 = all", "successThreshold": "Success threshold (0–1)", "directory": "Output directory",
+		"uploadBytes": "Upload payload (bytes)", "downloadBytes": "Download payload (bytes)", "sampleSize": "IPs per subnet · 0 = all", "tcpPrecheck": "Advisory TCP pre-check (confirmed through Xray)", "maxIPs": "Maximum IPs · 0 = all", "successThreshold": "Success threshold (0–1)", "directory": "Output directory",
 		"length": "Length (bytes, e.g. 10-20)", "interval": "Interval (ms, e.g. 10-20)", "testIP": "Optimization test IP", "realisticPing": "Realistic warm ping", "handshakeTest": "TLS handshake test", "lossTest": "Packet-loss test",
 	}
 	if s, ok := known[s]; ok {

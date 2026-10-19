@@ -141,3 +141,30 @@ func Close() {
 func stamp() string {
 	return time.Now().Format("2006-01-02 15:04:05.000")
 }
+
+// Clear erases on-disk and in-memory events without unlinking an open log file.
+// Call only after scanner/optimizer tasks have finished.
+func Clear() error {
+	mu.Lock()
+	if writer != nil {
+		if err := writer.Flush(); err != nil {
+			mu.Unlock()
+			return err
+		}
+		if err := file.Truncate(0); err != nil {
+			mu.Unlock()
+			return err
+		}
+		if _, err := file.Seek(0, 0); err != nil {
+			mu.Unlock()
+			return err
+		}
+		writer.Reset(file)
+	}
+	mu.Unlock()
+	bufMu.Lock()
+	buf = nil
+	bufMu.Unlock()
+	gen.Add(1)
+	return nil
+}

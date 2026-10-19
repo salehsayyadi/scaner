@@ -103,6 +103,15 @@ func ParseVlessLink(link string) (*Config, error) {
 		return ""
 	}
 
+	cfg.Proxy.Flow = get("flow")
+	if encryption := get("encryption"); encryption != "" && encryption != "none" {
+		return nil, fmt.Errorf("unsupported VLESS encryption: %s", encryption)
+	}
+
+	if header := get("headerType"); header != "" && header != "none" {
+		return nil, fmt.Errorf("unsupported transport headerType: %s", header)
+	}
+
 	// Transport type / network.
 	network := strings.ToLower(get("type", "network"))
 	cfg.Proxy.Type = normalizeNetwork(network)
@@ -112,13 +121,12 @@ func ParseVlessLink(link string) (*Config, error) {
 	switch security {
 	case "reality":
 		cfg.Proxy.Method = "reality"
-	case "tls", "xtls":
+	case "tls":
 		cfg.Proxy.Method = "tls"
 	case "none", "":
-		// CDN fronting still needs TLS to the edge; default to tls.
-		cfg.Proxy.Method = "tls"
+		cfg.Proxy.Method = "none"
 	default:
-		cfg.Proxy.Method = "tls"
+		return nil, fmt.Errorf("unsupported security: %s", security)
 	}
 
 	sni := get("sni", "peer")
@@ -140,7 +148,7 @@ func ParseVlessLink(link string) (*Config, error) {
 		if cfg.Proxy.Reality.Fingerprint == "" {
 			cfg.Proxy.Reality.Fingerprint = "chrome"
 		}
-	} else {
+	} else if cfg.Proxy.Method == "tls" {
 		cfg.Proxy.Reality = nil
 		cfg.Proxy.TLS = &TlsConfig{
 			SNI:           sni,
@@ -151,9 +159,11 @@ func ParseVlessLink(link string) (*Config, error) {
 		if cfg.Proxy.TLS.Fingerprint == "" {
 			cfg.Proxy.TLS.Fingerprint = "chrome"
 		}
-		if len(cfg.Proxy.TLS.ALPN) == 0 {
-			cfg.Proxy.TLS.ALPN = []string{"h2", "http/1.1"}
+		if cfg.Proxy.TLS.SNI == "" {
+			cfg.Proxy.TLS.SNI = cfg.Proxy.Address
 		}
+	} else {
+		cfg.Proxy.TLS, cfg.Proxy.Reality = nil, nil
 	}
 
 	host := get("host")
@@ -262,7 +272,12 @@ func ParseXrayJSON(data []byte) (*Config, error) {
 	}
 	users := asSlice(vnext["users"])
 	if len(users) > 0 {
-		cfg.Proxy.UUID = asString(asMap(users[0])["id"])
+		user := asMap(users[0])
+		cfg.Proxy.UUID = asString(user["id"])
+		cfg.Proxy.Flow = asString(user["flow"])
+		if enc := asString(user["encryption"]); enc != "" && enc != "none" {
+			return nil, fmt.Errorf("unsupported VLESS encryption: %s", enc)
+		}
 	}
 
 	ss := asMap(proxyOut["streamSettings"])
@@ -281,22 +296,31 @@ func ParseXrayJSON(data []byte) (*Config, error) {
 			Fingerprint: firstNonEmpty(asString(rs["fingerprint"]), "chrome"),
 			ServerName:  asString(rs["serverName"]),
 		}
-	default:
+	case "", "none":
+		cfg.Proxy.Method = "none"
+		cfg.Proxy.TLS, cfg.Proxy.Reality = nil, nil
+	case "tls":
 		cfg.Proxy.Method = "tls"
 		ts := asMap(ss["tlsSettings"])
 		alpn := []string{}
 		for _, a := range asSlice(ts["alpn"]) {
 			alpn = append(alpn, asString(a))
 		}
-		if len(alpn) == 0 {
-			alpn = []string{"h2", "http/1.1"}
-		}
 		cfg.Proxy.Reality = nil
 		cfg.Proxy.TLS = &TlsConfig{
-			SNI:           asString(ts["serverName"]),
+			SNI:           firstNonEmpty(asString(ts["serverName"]), cfg.Proxy.Address),
 			ALPN:          alpn,
 			Fingerprint:   firstNonEmpty(asString(ts["fingerprint"]), "chrome"),
 			AllowInsecure: asBool(ts["allowInsecure"]),
+		}
+	default:
+		return nil, fmt.Errorf("unsupported security: %s", security)
+	}
+	if mux := asMap(proxyOut["mux"]); len(mux) > 0 {
+		if b, err := json.Marshal(mux); err == nil {
+			if err := json.Unmarshal(b, &cfg.Xray.Mux); err != nil {
+				return nil, err
+			}
 		}
 	}
 
@@ -371,7 +395,7 @@ func normalizeNetwork(n string) string {
 	case "splithttp", "xhttp":
 		return "xhttp"
 	case "h2", "http":
-		return "tcp" // not separately modeled; treat as raw tcp
+		return n // rejected explicitly rather than silently rewritten to TCP
 	case "":
 		return "tcp"
 	default:

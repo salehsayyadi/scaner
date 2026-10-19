@@ -37,6 +37,7 @@ type MeasureOptions struct {
 // MeasureResult holds the rich per-IP measurement.
 type MeasureResult struct {
 	IP             string
+	Connected      bool
 	Success        bool
 	StatusCode     int
 	MinLatency     time.Duration // realistic ping (min of warm samples)
@@ -260,6 +261,7 @@ func TestMeasure(ctx context.Context, socksPort int, opts MeasureOptions) *Measu
 		return res
 	}
 	res.Success = true
+	res.Connected = true
 
 	// Packet loss: fresh, CONCURRENT probes. Each one re-dials through the tunnel
 	// to this edge, so the loss % reflects how reliably NEW connections succeed —

@@ -35,6 +35,7 @@ type MuxConfig struct {
 // ProxyConfig represents the proxy settings
 type ProxyConfig struct {
 	UUID    string         `json:"uuid"`
+	Flow    string         `json:"flow"`
 	Address string         `json:"address"` // IP or domain for vnext
 	Port    int            `json:"port"`
 	Method  string         `json:"method"` // tls, reality
@@ -125,9 +126,9 @@ type ScanConfig struct {
 	MaxIPs     int    `json:"maxIPs"`
 	Shuffle    bool   `json:"shuffle"`
 	SampleSize int    `json:"sampleSize"` // IPs per subnet
-	// TCPPrecheck connects to ip:port before starting Xray; IPs that do not
-	// answer are reported as failed in ~2 s instead of costing a full Xray
-	// start plus timeout × retries. Skipped automatically for QUIC/h3.
+	// TCPPrecheck records an advisory ip:port probe before starting Xray. A
+	// short/transient probe failure never substitutes for the full Xray test.
+	// Skipped automatically for QUIC/h3.
 	TCPPrecheck bool `json:"tcpPrecheck"`
 
 	// Measurement settings (realistic ping, packet loss, upload/download)
@@ -176,8 +177,8 @@ func DefaultConfig() *Config {
 			},
 		},
 		Fragment: FragmentConfig{
-			Enabled: true,
-			Mode:    "manual",
+			Enabled: false,
+			Mode:    "off",
 			Packets: "tlshello",
 			Manual: ManualFragment{
 				Length:   "10-20",
@@ -283,8 +284,8 @@ func (c *Config) Validate() error {
 		method = "tls"
 		c.Proxy.Method = method
 	}
-	if method != "tls" && method != "reality" {
-		return fmt.Errorf("invalid proxy.method: %s (must be 'tls' or 'reality')", method)
+	if method != "tls" && method != "reality" && method != "none" {
+		return fmt.Errorf("invalid proxy.method: %s (must be tls, reality or none)", method)
 	}
 
 	// Validate TLS config
@@ -292,8 +293,9 @@ func (c *Config) Validate() error {
 		if c.Proxy.TLS == nil {
 			return fmt.Errorf("proxy.tls is required when method is 'tls'")
 		}
-		if c.Proxy.TLS.SNI == "" {
-			return fmt.Errorf("proxy.tls.sni is required")
+		// An omitted SNI uses the original server hostname, not the scanned IP.
+		if c.Proxy.TLS.SNI == "" && c.Proxy.Address == "" {
+			return fmt.Errorf("set a TLS SNI or the original server address")
 		}
 	}
 

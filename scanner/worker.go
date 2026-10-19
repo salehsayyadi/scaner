@@ -30,6 +30,8 @@ type Worker struct {
 	paused    *atomic.Bool
 	// onActive, when set, is told when an IP starts (true) and finishes (false).
 	onActive func(ip string, active bool)
+	// Optional probe dependency permits deterministic regression coverage.
+	tcpConnect func(string, int, time.Duration) (time.Duration, error)
 }
 
 // NewWorker creates a new scanner worker
@@ -148,7 +150,7 @@ func (w *Worker) processIP(ip string) {
 		var err error
 		for i := 0; i < tries && w.ctx.Err() == nil; i++ {
 			var lat time.Duration
-			if lat, err = utils.TCPConnect(ip, w.cfg.Proxy.Port, precheckTimeout(w.cfg)); err == nil {
+			if lat, err = w.probeTCP(ip, w.cfg.Proxy.Port, precheckTimeout(w.cfg)); err == nil {
 				result.TCPOK, result.TCPMs = true, lat.Milliseconds()
 				break
 			}
@@ -157,11 +159,7 @@ func (w *Worker) processIP(ip string) {
 			return
 		}
 		if !result.TCPOK {
-			// Unreachable: Xray would only wait for its timeout on every retry.
-			result.Error = fmt.Sprintf("TCP %d unreachable: %v", w.cfg.Proxy.Port, err)
-			w.results.Add(result)
-			applog.Logf("ip=%-15s ok=false tcp pre-check failed err=%q", ip, result.Error)
-			return
+			applog.Logf("ip=%s TCP pre-check failed (%v); confirming through Xray with full timeout", ip, err)
 		}
 	}
 
@@ -189,12 +187,13 @@ func (w *Worker) processIP(ip string) {
 	}
 
 	if !probed && w.ctx.Err() == nil {
-		if lat, err := utils.TCPConnect(ip, w.cfg.Proxy.Port, tcpProbeTimeout(w.cfg)); err == nil {
+		if lat, err := w.probeTCP(ip, w.cfg.Proxy.Port, tcpProbeTimeout(w.cfg)); err == nil {
 			result.TCPOK = true
 			result.TCPMs = lat.Milliseconds()
 		}
 	}
 	if m != nil {
+		result.Connected = m.Connected
 		result.Success = m.Success
 		result.Latency = m.MinLatency
 		result.AvgLatencyMs = m.AvgLatency.Milliseconds()
@@ -319,16 +318,16 @@ func (w *Worker) measureIP(ip string) *xray.MeasureResult {
 		switch {
 		case w.cfg.Scan.MaxLatency > 0 && m.MinLatency.Milliseconds() > int64(w.cfg.Scan.MaxLatency):
 			m.Success = false
-			m.Error = fmt.Errorf("latency %dms exceeds max %dms", m.MinLatency.Milliseconds(), w.cfg.Scan.MaxLatency)
+			m.Error = fmt.Errorf("connected, but latency %dms exceeds max %dms", m.MinLatency.Milliseconds(), w.cfg.Scan.MaxLatency)
 		case w.cfg.Scan.MaxLoss > 0 && m.LossPercent > w.cfg.Scan.MaxLoss:
 			m.Success = false
-			m.Error = fmt.Errorf("loss %.0f%% exceeds max %.0f%%", m.LossPercent, w.cfg.Scan.MaxLoss)
+			m.Error = fmt.Errorf("connected, but loss %.0f%% exceeds max %.0f%%", m.LossPercent, w.cfg.Scan.MaxLoss)
 		case w.cfg.Scan.UploadTest && w.cfg.Scan.MinUpload > 0 && m.UploadMbps < w.cfg.Scan.MinUpload:
 			m.Success = false
-			m.Error = fmt.Errorf("upload %.2f Mbps below min %.2f", m.UploadMbps, w.cfg.Scan.MinUpload)
+			m.Error = fmt.Errorf("connected, but upload %.2f Mbps below min %.2f", m.UploadMbps, w.cfg.Scan.MinUpload)
 		case w.cfg.Scan.DownloadTest && w.cfg.Scan.MinDownload > 0 && m.DownloadMbps < w.cfg.Scan.MinDownload:
 			m.Success = false
-			m.Error = fmt.Errorf("download %.2f Mbps below min %.2f", m.DownloadMbps, w.cfg.Scan.MinDownload)
+			m.Error = fmt.Errorf("connected, but download %.2f Mbps below min %.2f", m.DownloadMbps, w.cfg.Scan.MinDownload)
 		}
 	}
 
@@ -436,4 +435,11 @@ func (w *Worker) printFragmentDebugInfo(ip string, port int) {
 	fmt.Printf("    %s%-16s%s %s%d%s\n", utils.Gray, "Remote Port:", utils.Reset, utils.Yellow, w.cfg.Proxy.Port, utils.Reset)
 
 	fmt.Println()
+}
+
+func (w *Worker) probeTCP(ip string, port int, timeout time.Duration) (time.Duration, error) {
+	if w.tcpConnect != nil {
+		return w.tcpConnect(ip, port, timeout)
+	}
+	return utils.TCPConnect(ip, port, timeout)
 }

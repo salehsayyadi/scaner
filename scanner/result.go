@@ -19,6 +19,7 @@ import (
 type Result struct {
 	IP         string        `json:"ip"`
 	Success    bool          `json:"success"`
+	Connected  bool          `json:"connected,omitempty"` // Xray worked, even when a quality filter rejected the IP
 	Latency    time.Duration `json:"latency"`
 	LatencyMs  int64         `json:"latency_ms"`
 	StatusCode int           `json:"status_code,omitempty"`
@@ -280,6 +281,15 @@ func LoadResultsCSV(path string) ([]Result, error) {
 			HandshakeMs: pi(col(row, "handshake (ms)")),
 			JitterMs:    pi(col(row, "jitter (ms)")),
 			LossPercent: pf(col(row, "loss (%)")),
+		}
+
+		if status := strings.ToLower(col(row, "status")); status != "" {
+			res.Success = status == "success" || status == "good" || status == "true"
+		}
+		res.Connected = res.Success || strings.EqualFold(col(row, "connected"), "true")
+		res.Error = col(row, "error")
+		if ts := col(row, "tested at"); ts != "" {
+			res.TestedAt, _ = time.Parse(time.RFC3339, ts)
 		}
 		if up := col(row, "upload (mbps)"); up != "" {
 			res.UploadMbps = pf(up)

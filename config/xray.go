@@ -91,6 +91,7 @@ func buildDNS() map[string]interface{} {
 func buildInbounds(socksPort int) []map[string]interface{} {
 	return []map[string]interface{}{
 		{
+			"listen":   "127.0.0.1",
 			"port":     socksPort,
 			"protocol": "socks",
 			"settings": map[string]interface{}{
@@ -162,7 +163,7 @@ func buildOutboundsWithFragment(cfg *Config, targetIP string, fragment FragmentS
 					"users": []map[string]interface{}{
 						{
 							"encryption": "none",
-							"flow":       "",
+							"flow":       cfg.Proxy.Flow,
 							"id":         cfg.Proxy.UUID,
 							"level":      8,
 						},
@@ -299,17 +300,15 @@ func buildStreamSettings(cfg *Config, fragment FragmentSettings) map[string]inte
 		}
 
 		ss["realitySettings"] = realitySettings
-	} else if cfg.Proxy.TLS != nil {
+	} else if method == "tls" && cfg.Proxy.TLS != nil {
 		tlsSettings := map[string]interface{}{
 			"allowInsecure": cfg.Proxy.TLS.AllowInsecure,
-			"serverName":    cfg.Proxy.TLS.SNI,
+			"serverName":    firstNonEmpty(cfg.Proxy.TLS.SNI, cfg.Proxy.Address),
 			"show":          false,
 		}
 
 		if len(cfg.Proxy.TLS.ALPN) > 0 {
 			tlsSettings["alpn"] = cfg.Proxy.TLS.ALPN
-		} else {
-			tlsSettings["alpn"] = []string{"h2", "http/1.1"}
 		}
 
 		if cfg.Proxy.TLS.Fingerprint != "" {
@@ -319,14 +318,6 @@ func buildStreamSettings(cfg *Config, fragment FragmentSettings) map[string]inte
 		}
 
 		ss["tlsSettings"] = tlsSettings
-	} else {
-		ss["tlsSettings"] = map[string]interface{}{
-			"allowInsecure": false,
-			"alpn":          []string{"h2", "http/1.1"},
-			"fingerprint":   "chrome",
-			"serverName":    "",
-			"show":          false,
-		}
 	}
 
 	switch cfg.Proxy.Type {

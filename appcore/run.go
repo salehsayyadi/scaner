@@ -99,9 +99,6 @@ func NewRunWithSource(parent context.Context, cfg *config.Config, ranges, mode, 
 			return nil, err
 		}
 	}
-	if mode == ModeXray && c.Proxy.Method == "reality" {
-		return nil, fmt.Errorf("Reality supports Check connection and fragment optimization; choose Check connection")
-	}
 	if c.Scan.Threads <= 0 {
 		c.Scan.Threads = 1
 	}
@@ -252,7 +249,7 @@ func (r *Run) Execute() error {
 	for _, rs := range r.ranges {
 		applog.Logf("range %s hosts=%d queued=%d", rs.Label(), rs.Hosts, rs.Queued)
 	}
-	if r.Mode != ModeConnectivity && r.Config.Fragment.Enabled && r.Config.Fragment.Mode == "auto" {
+	if r.Mode == ModeXray && r.Config.Fragment.Enabled && r.Config.Fragment.Mode == "auto" {
 		target := r.Config.Fragment.Auto.TestIP
 		if r.Config.Proxy.Method == "reality" || target == "" {
 			target = r.IPs[0]
@@ -298,13 +295,9 @@ func (r *Run) check() error {
 		return err
 	}
 	v := xray.TestConnectivityWithContext(r.ctx, port, r.Config.Scan.TestURL, r.Config.GetTimeout())
-	result := scanner.Result{IP: r.IPs[0], Success: v.Success, Latency: v.Latency}
+	result := scanner.Result{IP: r.IPs[0], Success: v.Success, Connected: v.Success, Latency: v.Latency, StatusCode: v.StatusCode}
 	if v.Error != nil {
 		result.Error = v.Error.Error()
-	}
-	if result.Success && r.Config.Scan.MaxLatency > 0 && result.Latency.Milliseconds() > int64(r.Config.Scan.MaxLatency) {
-		result.Success = false
-		result.Error = "latency exceeds the configured maximum"
 	}
 	r.Results.Add(result)
 	r.completed.Store(1)

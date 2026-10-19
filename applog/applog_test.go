@@ -38,3 +38,26 @@ func TestBufferedLogIsCompleteAfterClose(t *testing.T) {
 		t.Fatalf("lines=%d", n)
 	}
 }
+
+func TestClearTruncatesFileAndAllowsFurtherLogging(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "clear.log")
+	Init(p)
+	defer Close()
+	Logf("old sensitive event")
+	if err := Clear(); err != nil {
+		t.Fatal(err)
+	}
+	if len(Snapshot()) != 0 {
+		t.Fatal("memory log was not cleared")
+	}
+	data, err := os.ReadFile(p)
+	if err != nil || len(data) != 0 {
+		t.Fatal("disk log was not cleared", err)
+	}
+	Logf("new event")
+	Close()
+	data, err = os.ReadFile(p)
+	if err != nil || strings.Contains(string(data), "old sensitive") || !strings.Contains(string(data), "new event") {
+		t.Fatal("logger did not restart cleanly", err)
+	}
+}

@@ -69,7 +69,7 @@ func TestCancelledRunDoesNotScan(t *testing.T) {
 	}
 }
 
-func TestProxyInputValidationAndRealityRestriction(t *testing.T) {
+func TestProxyInputValidationAndRealityScan(t *testing.T) {
 	c := config.DefaultConfig()
 	if _, err := NewRun(context.Background(), c, "127.0.0.1", ModeXray, false); err == nil {
 		t.Fatal("empty connection accepted")
@@ -78,8 +78,8 @@ func TestProxyInputValidationAndRealityRestriction(t *testing.T) {
 	c.Proxy.Method = "reality"
 	c.Proxy.Address = "127.0.0.1"
 	c.Proxy.Reality = &config.RealityConfig{PublicKey: "test"}
-	if _, err := NewRun(context.Background(), c, "127.0.0.1", ModeXray, false); err == nil {
-		t.Fatal("Reality scan should suggest check mode")
+	if _, err := NewRun(context.Background(), c, "127.0.0.1", ModeXray, false); err != nil {
+		t.Fatal("Reality scan should be allowed:", err)
 	}
 	if _, err := NewRun(context.Background(), c, "", ModeCheck, false); err != nil {
 		t.Fatal(err)

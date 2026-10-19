@@ -107,6 +107,9 @@ func TestConnectivityWithContext(ctx context.Context, socksPort int, testURL str
 
 	result.Latency = time.Since(start)
 	result.StatusCode = resp.StatusCode
+	if resp.StatusCode < 200 || resp.StatusCode >= 400 {
+		result.Error = fmt.Errorf("test endpoint returned HTTP %d; this alone does not prove the proxy is broken", resp.StatusCode)
+	}
 	result.BytesRead = int64(len(body))
 	result.Success = resp.StatusCode >= 200 && resp.StatusCode < 400
 
