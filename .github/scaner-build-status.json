@@ -1,6 +1,13 @@
 {
-  "state": "building",
+  "state": "ready",
   "version": "4.6.4",
+  "source_sha": "61aab2a7b202ecb6d8f5df15376287a5b38a52fc",
+  "prepare": "success",
+  "tests": "success",
+  "windows": "success",
+  "android": "success",
+  "publish": "success",
   "run_url": "https://github.com/salehsayyadi/scaner/actions/runs/39271204227",
-  "source_sha": "7b6bece41ab693acce81488942d56216e29c8a0d"
+  "release_url": "https://github.com/salehsayyadi/scaner/releases/tag/v4.6.4",
+  "failed_jobs": []
 }
