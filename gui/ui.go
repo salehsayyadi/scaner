@@ -51,6 +51,7 @@ type UI struct {
 	TestConnection                           *widget.Button
 	ConnectionTestStatus                     *widget.Label
 	DebugCheck                               *widget.Check
+	RangePicks                               *rangePicksView
 	Status, Summary, Preview, ConnectionInfo *widget.Label
 	Progress                                 *widget.ProgressBar
 	Table                                    *widget.Table
@@ -190,6 +191,11 @@ func New(a fyne.App, w fyne.Window, dataDir, version string, mobile bool) *UI {
 	settingsTab := u.settingsTab()
 	resultsTab := u.resultsTab()
 	activityTab := u.activityTab()
+	rangePicksTab := u.rangePicksTab()
+	picksName := "Range picks"
+	if mobile {
+		picksName = "Ranges"
+	}
 	names := []string{"Scan", "Connection", "Settings", "Results", "Activity"}
 	if mobile {
 		names = []string{"Scan", "Link", "Setup", "IPs", "Logs"}
@@ -200,6 +206,7 @@ func New(a fyne.App, w fyne.Window, dataDir, version string, mobile bool) *UI {
 		container.NewTabItemWithIcon(T(names[2]), theme.SettingsIcon(), settingsTab),
 		container.NewTabItemWithIcon(T(names[3]), theme.ListIcon(), resultsTab),
 		container.NewTabItemWithIcon(T(names[4]), theme.HistoryIcon(), activityTab),
+		container.NewTabItemWithIcon(T(picksName), theme.StorageIcon(), rangePicksTab),
 	)
 	if mobile {
 		u.Tabs.SetTabLocation(container.TabLocationBottom)
@@ -208,6 +215,9 @@ func New(a fyne.App, w fyne.Window, dataDir, version string, mobile bool) *UI {
 		if t == u.Tabs.Items[4] {
 			u.refreshHistory()
 			u.refreshLog(true)
+		}
+		if t == u.Tabs.Items[rangePicksTabIndex] {
+			u.refreshRangePicks(true)
 		}
 		if t == u.Tabs.Items[3] {
 			u.refreshResults()
@@ -892,6 +902,9 @@ func (u *UI) refreshResultsThrottled() {
 		return
 	}
 	n := u.results.Count()
+	if u.Tabs != nil && u.Tabs.SelectedIndex() == rangePicksTabIndex {
+		u.refreshRangePicks(false)
+	}
 	visible := u.Tabs != nil && u.Tabs.SelectedIndex() == 3
 	interval := 400 * time.Millisecond
 	if n > 5000 {
@@ -1247,6 +1260,7 @@ func (u *UI) refreshResults() {
 	u.lastTable = time.Now()
 	u.lastCount = u.results.Count()
 	u.Summary.SetText(Tf("%d tested · %d good", u.lastCount, u.results.SuccessCount()))
+	u.refreshRangePicks(true)
 }
 
 var resultHeaders = []string{"IP", "Status", "Ping ms", "TCP ms", "TLS ms", "Jitter ms", "Loss %", "Up Mbps", "Down Mbps"}
@@ -1417,6 +1431,7 @@ func (u *UI) activityTab() fyne.CanvasObject {
 			return
 		}
 		u.results = scanner.NewResultCollectorFrom(rows)
+		u.lastRun = nil
 		u.selected = ""
 		u.refreshResults()
 		u.Tabs.SelectIndex(3)

@@ -12,16 +12,17 @@ import (
 )
 
 type Session struct {
-	Config *config.Config `json:"config"`
-	Ranges string         `json:"ranges"`
-	Mode   string         `json:"mode"`
-	Source string         `json:"source"`
-	Debug  bool           `json:"debug"`
-	Top    int            `json:"top"`
+	Config *config.Config  `json:"config"`
+	Ranges string          `json:"ranges"`
+	Mode   string          `json:"mode"`
+	Source string          `json:"source"`
+	Debug  bool            `json:"debug"`
+	Top    int             `json:"top"`
+	Picks  PickPreferences `json:"rangePicks"`
 }
 
 func DefaultSession() *Session {
-	return &Session{Config: config.DefaultConfig(), Mode: ModeXray, Source: SourceRanges, Top: 10}
+	return &Session{Config: config.DefaultConfig(), Mode: ModeXray, Source: SourceRanges, Top: 10, Picks: DefaultPickPreferences()}
 }
 
 func LoadSession(dir string) (*Session, error) {
@@ -45,6 +46,7 @@ func LoadSession(dir string) (*Session, error) {
 	if s.Source != SourceRanges && s.Source != SourceIPList {
 		s.Source = SourceRanges
 	}
+	s.Picks.Normalize()
 	return s, nil
 }
 

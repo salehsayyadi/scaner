@@ -146,6 +146,12 @@ func NewRunWithSource(parent context.Context, cfg *config.Config, ranges, mode, 
 	} else {
 		r.Results = scanner.NewResultCollector()
 	}
+	r.Results.SetRangeResolver(func(ip string) string {
+		if i := r.rangeIndex(ip); i >= 0 && i < len(r.ranges) {
+			return rangeKey(r.ranges[i].RangeInfo)
+		}
+		return ""
+	})
 	r.Results.SetOnAdd(func(v scanner.Result) {
 		r.countResult(v)
 		applog.Logf("IP=%s success=%v ping=%dms TCP=%dms handshake=%dms jitter=%dms loss=%.1f%% upload=%.2fMbps download=%.2fMbps error=%s",

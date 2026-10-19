@@ -18,6 +18,7 @@ import (
 // Result represents the scan result for a single IP
 type Result struct {
 	IP         string        `json:"ip"`
+	Range      string        `json:"range,omitempty"`
 	Success    bool          `json:"success"`
 	Connected  bool          `json:"connected,omitempty"` // Xray worked, even when a quality filter rejected the IP
 	Latency    time.Duration `json:"latency"`
@@ -51,6 +52,7 @@ type ResultCollector struct {
 	good    int // successful results, kept so SuccessCount is O(1)
 	mu      sync.Mutex
 	onAdd   func(Result)
+	rangeOf func(string) string
 }
 
 // NewResultCollector creates a new result collector
@@ -68,9 +70,19 @@ func (rc *ResultCollector) SetOnAdd(fn func(Result)) {
 	rc.mu.Unlock()
 }
 
+// SetRangeResolver stamps provenance before storing or emitting a result.
+func (rc *ResultCollector) SetRangeResolver(fn func(string) string) {
+	rc.mu.Lock()
+	defer rc.mu.Unlock()
+	rc.rangeOf = fn
+}
+
 // Add adds a result to the collection
 func (rc *ResultCollector) Add(result Result) {
 	rc.mu.Lock()
+	if result.Range == "" && rc.rangeOf != nil {
+		result.Range = rc.rangeOf(result.IP)
+	}
 	result.LatencyMs = result.Latency.Milliseconds()
 	result.TestedAt = time.Now()
 	rc.results = append(rc.results, result)
@@ -288,6 +300,7 @@ func LoadResultsCSV(path string) ([]Result, error) {
 		}
 		res.Connected = res.Success || strings.EqualFold(col(row, "connected"), "true")
 		res.Error = col(row, "error")
+		res.Range = col(row, "range")
 		if ts := col(row, "tested at"); ts != "" {
 			res.TestedAt, _ = time.Parse(time.RFC3339, ts)
 		}

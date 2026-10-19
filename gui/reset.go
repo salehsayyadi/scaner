@@ -58,13 +58,14 @@ func (u *UI) confirmReset(scope string) {
 		return
 	}
 	messages := map[string]string{
-		"connection": "Reset address, UUID, flow and transport details? Settings, targets and saved results are kept.",
-		"scan":       "Reset targets, scan mode, sampling and scan tuning? Connection, fragment settings and saved results are kept.",
-		"settings":   "Restore measurement, fragment, output, Xray and appearance defaults? Connection, targets and saved results are kept.",
-		"results":    "Clear displayed results and result filters? Saved files, connection and settings are kept.",
-		"history":    "Permanently delete application-generated saved scans in the current output folder? Other files are kept.",
-		"log":        "Permanently clear the event log and generated debug config? Connection and results are kept.",
-		"all":        "Permanently reset connection, settings, targets, results, logs and preferences? Generated scans in the current/default output folders are deleted; manual exports and other output folders are not touched.",
+		"range-picks": "Reset selected ranges, ranking and per-range count? Scan results and connection are kept.",
+		"connection":  "Reset address, UUID, flow and transport details? Settings, targets and saved results are kept.",
+		"scan":        "Reset targets, scan mode, sampling and scan tuning? Connection, fragment settings and saved results are kept.",
+		"settings":    "Restore measurement, fragment, output, Xray and appearance defaults? Connection, targets and saved results are kept.",
+		"results":     "Clear displayed results and result filters? Saved files, connection and settings are kept.",
+		"history":     "Permanently delete application-generated saved scans in the current output folder? Other files are kept.",
+		"log":         "Permanently clear the event log and generated debug config? Connection and results are kept.",
+		"all":         "Permanently reset connection, settings, targets, results, logs and preferences? Generated scans in the current/default output folders are deleted; manual exports and other output folders are not touched.",
 	}
 	dialog.ShowConfirm(T("Reset"), T(messages[scope]), func(ok bool) {
 		if !ok || !u.resetAllowed() {
@@ -122,6 +123,9 @@ func (u *UI) resetSection(scope string) error {
 		u.Session.ResetSettings()
 		u.DebugCheck.SetChecked(false)
 		u.setTheme(ThemeSystem)
+	case "range-picks":
+		u.Session.Picks = appcore.DefaultPickPreferences()
+		u.refreshRangePicks(true)
 	case "results":
 		u.clearResults()
 	case "history":
@@ -160,7 +164,7 @@ func (u *UI) resetSection(scope string) error {
 	default:
 		return errors.New("unknown reset section")
 	}
-	if scope == "results" || scope == "history" || scope == "log" {
+	if scope == "results" || scope == "history" || scope == "log" || scope == "range-picks" {
 		u.refreshHistory()
 		u.Status.SetText(T("Reset complete."))
 		u.autoSave()
