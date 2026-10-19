@@ -3,7 +3,6 @@
 package netroute
 
 import (
-	"encoding/binary"
 	"net"
 	"syscall"
 	"testing"
@@ -36,10 +35,8 @@ func TestWindowsUnicastInterfaceSocketOptions(t *testing.T) {
 		if e != nil {
 			t.Fatal(e)
 		}
-		if family == syscall.AF_INET {
-			bytes := *(*[4]byte)(unsafe.Pointer(&value))
-			value = binary.BigEndian.Uint32(bytes[:])
-		}
+		// IP_UNICAST_IF sets an index in network byte order, but gets it in
+		// host byte order (Microsoft IPPROTO_IP socket options documentation).
 		if int(value) != i.Index {
 			t.Fatalf("%s interface index %d, want %d", network, value, i.Index)
 		}
